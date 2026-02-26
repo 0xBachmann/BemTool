@@ -30,7 +30,8 @@ enum EquationEnum {
   HE , // Helmholtz
   LA , // Laplace
   YU , // Yukawa
-  MA   // Maxwell
+  MA , // Maxwell
+  RH , // Rotating Helmholtz
 };
 
 #endif
