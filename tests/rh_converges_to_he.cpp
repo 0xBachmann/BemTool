@@ -41,12 +41,12 @@ TEST(RotatingHelmholtz, RH_SL_converges_to_HE_SL_when_Omega0)
 
   // Choose basis types (must exist in your BemTool build).
   // P1xP1 matches the standard HE_SL_2D_P1xP1 you showed earlier.
-  using PhiX = P1;
-  using PhiY = P1;
+  using PhiX = P1_2D;
+  using PhiY = P1_2D;
 
   // Instantiate the HE single-layer kernel (reference)
   const Real kappa = 6.0; // choose moderate k; too large may need bigger M
-  BIOpKernel<HE, SL_OP, 2, PhiX, PhiY> he(mesh, mesh, kappa);
+  HE_SL_2D_P1xP1 he(mesh, mesh, kappa);
   he.Assign(ix, iy);
 
   // Choose quadrature points in reference element coordinates.
@@ -80,7 +80,7 @@ TEST(RotatingHelmholtz, RH_SL_converges_to_HE_SL_when_Omega0)
 
   for (int M : Ms)
   {
-    BIOpKernel<RH, SL_OP, 2, PhiX, PhiY> rh(mesh, mesh, khat, Omega, c, M, keep_D2);
+    RH_SL_2D_P1xP1 rh(mesh, mesh, khat, Omega, c, M, keep_D2);
     rh.Assign(ix, iy);
 
     const Cplx rh_val = rh(tx, ty, /*kx=*/0, /*ky=*/0);

@@ -5,142 +5,37 @@
 #include "operator.hpp"   // BIOpKernelTraits, R3, MatJac, DetJac, iu, Real, Cplx, etc.
 #include <complex>
 #include <cmath>
+#include <vector>
 
-// You need *complex* Bessel J_m and Y_m.
-// Option A (quick): boost::math (works for complex arguments)
-// Option B (robust): AMOS zbesj/zbesh wrappers (recommended long-term)
-#include <boost/math/special_functions/bessel.hpp>
-// --- replace Boost includes + helpers with AMOS-based helpers ---
-
-#include <complex>
-#include <cmath>
-
-// AMOS Fortran entry points (names may need trailing underscore depending on your toolchain)
-extern "C" {
-
-// ZBESJ: J_{FNU+k-1}(Z), k=1..N
-void zbesj_(const double* zr, const double* zi,
-            const double* fnu, const int* kode, const int* n,
-            double* cyr, double* cyi, int* nz, int* ierr);
-
-// ZBESY: Y_{FNU+k-1}(Z), k=1..N  (needs work arrays)
-void zbesy_(const double* zr, const double* zi,
-            const double* fnu, const int* kode, const int* n,
-            double* cyr, double* cyi, int* nz,
-            double* cwrkr, double* cwrki, int* ierr);
-
-// ZBESH: H^{(m)}_{FNU+k-1}(Z), m=1 or 2, k=1..N (needs work arrays)
-void zbesh_(const double* zr, const double* zi,
-            const double* fnu, const int* kode, const int* m, const int* n,
-            double* cyr, double* cyi, int* nz,
-            int* ierr);
-}
+// Complex-valued Bessel/Hankel functions (AMOS wrapper).
+// API: sp_bessel::besselJ / besselJp / hankelH1 / hankelH1p / hankelH2 / hankelH2p
+// See: https://blog.joey-dumont.ca/complex_bessel/docs.html
+#include <complex_bessel.h>
 
 namespace bemtool
 {
-  inline Cplx amos_J_int(int m, const Cplx& z)
-  {
-    const int norder = (m < 0) ? -m : m;
-    const double fnu = static_cast<double>(norder);
-    const int kode = 1;
-    const int n = 1;
+  // --- Helpers: integer-order Bessel/Hankel for complex argument ---
+  // complex_bessel already implements negative orders via reflection formulae.
+  inline Cplx besselJ_int(const int m, const Cplx& z) { return sp_bessel::besselJ((double)m, z); }
+  inline Cplx besselY_int(const int m, const Cplx& z) { return sp_bessel::besselY((double)m, z); }
+  inline Cplx hankel1_int(const int m, const Cplx& z) { return sp_bessel::hankelH1((double)m, z); }
+  inline Cplx hankel2_int(const int m, const Cplx& z) { return sp_bessel::hankelH2((double)m, z); }
 
-    double cyr = 0.0, cyi = 0.0;
-    int nz = 0, ierr = 0;
-    const double zr = std::real(z), zi = std::imag(z);
-
-    zbesj_(&zr, &zi, &fnu, &kode, &n, &cyr, &cyi, &nz, &ierr);
-    Cplx val(cyr, cyi);
-
-    // J_{-n} = (-1)^n J_n
-    if (m < 0 && (norder & 1)) val = -val;
-
-    // Optional: handle ierr != 0 (throw, assert, or fallback)
-    return val;
-  }
-
-  inline Cplx amos_Y_int(int m, const Cplx& z)
-  {
-    const int norder = (m < 0) ? -m : m;
-    const double fnu = static_cast<double>(norder);
-    const int kode = 1;
-    const int n = 1;
-
-    double cyr = 0.0, cyi = 0.0;
-    int nz = 0, ierr = 0;
-    double cwrkr = 0.0, cwrki = 0.0;
-    const double zr = std::real(z), zi = std::imag(z);
-
-    zbesy_(&zr, &zi, &fnu, &kode, &n, &cyr, &cyi, &nz, &cwrkr, &cwrki, &ierr);
-    Cplx val(cyr, cyi);
-
-    // Y_{-n} = (-1)^n Y_n   (integer n)
-    if (m < 0 && (norder & 1)) val = -val;
-
-    return val;
-  }
-
-  inline Cplx amos_H1_int(int m, const Cplx& z)
-  {
-    const int norder = (m < 0) ? -m : m;
-    const double fnu = static_cast<double>(norder);
-    const int kode = 1;
-    const int hankel_kind = 1; // 1 => H^(1)
-    const int n = 1;
-
-    double cyr = 0.0, cyi = 0.0;
-    int nz = 0, ierr = 0;
-    const double zr = std::real(z), zi = std::imag(z);
-
-    zbesh_(&zr, &zi, &fnu, &kode, &hankel_kind, &n, &cyr, &cyi, &nz, &ierr);
-    Cplx val(cyr, cyi);
-
-    // H_{-n}^{(1)} = (-1)^n H_n^{(1)}  (integer n)
-    if (m < 0 && (norder & 1)) val = -val;
-
-    return val;
-  }
-
-  inline Cplx amos_H2_int(int m, const Cplx& z)
-  {
-    const int norder = (m < 0) ? -m : m;
-    const double fnu = static_cast<double>(norder);
-    const int kode = 1;
-    const int hankel_kind = 2; // 2 => H^(2)
-    const int n = 1;
-
-    double cyr = 0.0, cyi = 0.0;
-    int nz = 0, ierr = 0;
-    const double zr = std::real(z), zi = std::imag(z);
-
-    zbesh_(&zr, &zi, &fnu, &kode, &hankel_kind, &n, &cyr, &cyi, &nz, &ierr);
-    Cplx val(cyr, cyi);
-
-    if (m < 0 && (norder & 1)) val = -val;
-    return val;
-  }
-
-  // Now bind your existing helper names to AMOS:
-  inline Cplx besselJ_int(const int m, const Cplx& z) { return amos_J_int(m, z); }
-  inline Cplx besselY_int(const int m, const Cplx& z) { return amos_Y_int(m, z); }
-  inline Cplx hankel1_int(const int m, const Cplx& z) { return amos_H1_int(m, z); }
-  inline Cplx hankel2_int(const int m, const Cplx& z) { return amos_H2_int(m, z); }
-
+  // Pick H^(1) vs H^(2) based on sign(Im(kappa_m))
   inline Cplx hankel_rad_int(const int m, const Cplx& z, const Cplx& kappa_m)
   {
-    // matches your thesis discussion around choosing H^(1)/H^(2) by Im{kappa_m} :contentReference[oaicite:6]{index=6}
     const Real imk = std::imag(kappa_m);
     if (imk > (Real)0) return hankel1_int(m, z);
     if (imk < (Real)0) return hankel2_int(m, z);
     return hankel1_int(m, z); // Im=0: outgoing convention
   }
 
-  // A minimal sqrt helper: only “fix” the purely-real negative case (avoid Re<0 when Im~0).
+  // Square-root branch choice used to define kappa_m = sqrt(kappa_m^2).
+  // Prefer Im(kappa_m) >= 0 so that the Hankel kind choice by sign(Im(kappa_m)) is deterministic.
   inline Cplx kappa_from_kappa2(const Cplx& kappa2)
   {
     Cplx k = std::sqrt(kappa2);
-    constexpr Real eps = (Real)1e-14;
-    if (std::abs(std::imag(k)) < eps && std::real(k) < (Real)0) k = -k;
+    if (std::imag(k) < (Real)0) k = -k;
     return k;
   }
 
@@ -175,6 +70,11 @@ namespace bemtool
     const int M; // truncation
     const bool keep_D2; // whether to include -Omega^2 m^2 / c^2 term
 
+    // Precomputed per-mode values (m = -M..M).
+    std::vector<Cplx> kappa_m_cache;
+    std::vector<int> hankel_kind_cache; // 1 => H^(1), 2 => H^(2)
+    const Cplx prefactor; // 1/(4 i)
+
     // Cached element data
     R3 x0, y0; // NOTE: we need absolute x and y, not only x-y
     R3 x, y;
@@ -192,7 +92,23 @@ namespace bemtool
       : meshx(mx), meshy(my),
         phix(mx), phiy(my),
         khat(khat_), Omega(Omega_), c(c_), M(M_), keep_D2(keep_D2_)
+      , kappa_m_cache((std::size_t)(2 * M_ + 1))
+      , hankel_kind_cache((std::size_t)(2 * M_ + 1), 1)
+      , prefactor((Real)1 / ((Real)4 * iu))
     {
+      // Precompute kappa_m and Hankel kind selection once per kernel instance.
+      for (int m = -M; m <= M; ++m)
+      {
+        Cplx kappa2 = -(khat * khat) - (Real)2 * khat * (Real)m * (Omega / c);
+        if (keep_D2) kappa2 -= (Omega * Omega) * (Real)(m * m) / (c * c);
+
+        const Cplx kappa_m = kappa_from_kappa2(kappa2);
+        const std::size_t idx = (std::size_t)(m + M);
+        kappa_m_cache[idx] = kappa_m;
+
+        const Real imk = std::imag(kappa_m);
+        hankel_kind_cache[idx] = (imk < (Real)0) ? 2 : 1; // Im=0 => outgoing => H^(1)
+      }
     }
 
     void Assign(const int& ix, const int& iy)
@@ -225,28 +141,35 @@ namespace bemtool
       // truncated mode-sum Green function
       Cplx G = (Real)0;
 
+      // Build phases by recurrence to avoid exp() per mode.
+      const Cplx e_idphi = std::exp(iu * dphi);
+      Cplx phase = std::exp(iu * (Real)(-M) * dphi);
+
+      constexpr Real eps = (Real)1e-14;
+      const bool rmin_is_zero = (rmin < eps);
+
       for (int m = -M; m <= M; ++m)
       {
-        // kappa_m^2 formula (toggle keep_D2 as needed)
-        // kappa_m^2 = -khat^2 - 2*khat*m*(Omega/c)  [and optionally -Omega^2 m^2 / c^2]
-        Cplx kappa2 = -(khat * khat) - (Real)2 * khat * (Real)m * (Omega / c);
-        if (keep_D2)
-        {
-          kappa2 -= (Omega * Omega) * (Real)(m * m) / (c * c);
-        }
-
-        const Cplx kappa_m = kappa_from_kappa2(kappa2);
-
+        const std::size_t idx = (std::size_t)(m + M);
+        const Cplx kappa_m = kappa_m_cache[idx];
         const Cplx zmin = kappa_m * rmin;
         const Cplx zmax = kappa_m * rmax;
 
-        const Cplx Jm = besselJ_int(m, zmin);
-        const Cplx Hm = hankel_rad_int(m, zmax, kappa_m);
+        // Axis handling: J_m(0) = 0 for m!=0, J_0(0)=1.
+        Cplx Jm = (Real)0;
+        if (rmin_is_zero)
+        {
+          if (m == 0) Jm = (Real)1;
+        }
+        else
+        {
+          Jm = besselJ_int(m, zmin);
+        }
 
-        const Cplx phase = std::exp(iu * (Real)m * dphi);
+        const Cplx Hm = (hankel_kind_cache[idx] == 1) ? hankel1_int(m, zmax) : hankel2_int(m, zmax);
+        G += prefactor * phase * (Jm * Hm);
 
-        // prefactor 1/(4i)
-        G += ((Real)1 / ((Real)4 * iu)) * phase * (Jm * Hm);
+        phase *= e_idphi;
       }
 
       ker = h * G;
@@ -279,20 +202,32 @@ namespace bemtool
       const Real dphi = phix_ang - phiy_ang;
 
       Cplx G = (Real)0;
+      const Cplx e_idphi = std::exp(iu * dphi);
+      Cplx phase = std::exp(iu * (Real)(-M) * dphi);
+
+      constexpr Real eps = (Real)1e-14;
+      const bool rmin_is_zero = (rmin < eps);
+
       for (int m = -M; m <= M; ++m)
       {
-        Cplx kappa2 = -(khat * khat) - (Real)2 * khat * (Real)m * (Omega / c);
-        if (keep_D2) kappa2 -= (Omega * Omega) * (Real)(m * m) / (c * c);
-
-        const Cplx kappa_m = kappa_from_kappa2(kappa2);
+        const std::size_t idx = (std::size_t)(m + M);
+        const Cplx kappa_m = kappa_m_cache[idx];
         const Cplx zmin = kappa_m * rmin;
         const Cplx zmax = kappa_m * rmax;
 
-        const Cplx Jm = besselJ_int(m, zmin);
-        const Cplx Hm = hankel_rad_int(m, zmax, kappa_m);
-        const Cplx phase = std::exp(iu * (Real)m * dphi);
+        Cplx Jm = (Real)0;
+        if (rmin_is_zero)
+        {
+          if (m == 0) Jm = (Real)1;
+        }
+        else
+        {
+          Jm = besselJ_int(m, zmin);
+        }
 
-        G += phase * (Jm * Hm) * ((Real)1 / ((Real)4 * iu));
+        const Cplx Hm = (hankel_kind_cache[idx] == 1) ? hankel1_int(m, zmax) : hankel2_int(m, zmax);
+        G += prefactor * phase * (Jm * Hm);
+        phase *= e_idphi;
       }
 
       ker = h * G;
@@ -337,6 +272,11 @@ namespace bemtool
     const int M;
     const bool keep_D2;
 
+    // Precomputed per-mode values (m = -M..M).
+    std::vector<Cplx> kappa_m_cache;
+    std::vector<int> hankel_kind_cache; // 1 => H^(1), 2 => H^(2)
+    const Cplx prefactor; // 1/(4 i)
+
     // Cached element data
     R3 x0, y0;
     R3 x, y;
@@ -344,29 +284,10 @@ namespace bemtool
     Real h;
     Cplx ker;
 
-    // ---- argument-derivative recurrences ----
-    inline Cplx besselJ_prime_int(const int m, const Cplx& z) const
-    {
-      return (Real)0.5 * (besselJ_int(m - 1, z) - besselJ_int(m + 1, z));
-    }
-
-    inline Cplx hankel1_prime_int(const int m, const Cplx& z) const
-    {
-      return (Real)0.5 * (hankel1_int(m - 1, z) - hankel1_int(m + 1, z));
-    }
-
-    inline Cplx hankel2_prime_int(const int m, const Cplx& z) const
-    {
-      return (Real)0.5 * (hankel2_int(m - 1, z) - hankel2_int(m + 1, z));
-    }
-
-    inline Cplx hankel_rad_prime_int(const int m, const Cplx& z, const Cplx& kappa_m) const
-    {
-      const Real imk = std::imag(kappa_m);
-      if (imk > (Real)0) return hankel1_prime_int(m, z);
-      if (imk < (Real)0) return hankel2_prime_int(m, z);
-      return hankel1_prime_int(m, z);
-    }
+    // ---- argument-derivative via complex_bessel derivatives (more stable than m±1 recurrences) ----
+    inline Cplx besselJ_prime_int(const int m, const Cplx& z) const { return sp_bessel::besselJp((double)m, z, 1); }
+    inline Cplx hankel1_prime_int(const int m, const Cplx& z) const { return sp_bessel::hankelH1p((double)m, z, 1); }
+    inline Cplx hankel2_prime_int(const int m, const Cplx& z) const { return sp_bessel::hankelH2p((double)m, z, 1); }
 
   public:
     BIOpKernel(const typename Trait::MeshX& mx,
@@ -380,7 +301,21 @@ namespace bemtool
         normaly(NormalTo(my)),
         phix(mx), phiy(my),
         khat(khat_), Omega(Omega_), c(c_), M(M_), keep_D2(keep_D2_)
+      , kappa_m_cache((std::size_t)(2 * M_ + 1))
+      , hankel_kind_cache((std::size_t)(2 * M_ + 1), 1)
+      , prefactor((Real)1 / ((Real)4 * iu))
     {
+      for (int m = -M; m <= M; ++m)
+      {
+        Cplx kappa2 = -(khat * khat) - (Real)2 * khat * (Real)m * (Omega / c);
+        if (keep_D2) kappa2 -= (Omega * Omega) * (Real)(m * m) / (c * c);
+
+        const Cplx kappa_m = kappa_from_kappa2(kappa2);
+        const std::size_t idx = (std::size_t)(m + M);
+        kappa_m_cache[idx] = kappa_m;
+        const Real imk = std::imag(kappa_m);
+        hankel_kind_cache[idx] = (imk < (Real)0) ? 2 : 1;
+      }
     }
 
     void Assign(const int& ix, const int& iy)
@@ -430,25 +365,36 @@ namespace bemtool
 
       Cplx dGdn = (Real)0;
 
+      // Phase recurrence (avoid exp() per mode)
+      const Cplx e_idphi = std::exp(iu * dphi);
+      Cplx phase = std::exp(iu * (Real)(-M) * dphi);
+
+      const bool rmin_is_zero = (rmin < eps);
+
       for (int m = -M; m <= M; ++m)
       {
-        // kappa_m^2 (your thesis formula; toggle keep_D2)
-        Cplx kappa2 = -(khat * khat) - (Real)2 * khat * (Real)m * (Omega / c);
-        if (keep_D2) kappa2 -= (Omega * Omega) * (Real)(m * m) / (c * c);
-
-        const Cplx kappa_m = kappa_from_kappa2(kappa2);
+        const std::size_t idx = (std::size_t)(m + M);
+        const Cplx kappa_m = kappa_m_cache[idx];
 
         const Cplx zmin = kappa_m * rmin;
         const Cplx zmax = kappa_m * rmax;
 
-        const Cplx phase = std::exp(iu * (Real)m * dphi);
-
-        // ∂_{n_y} phase = phase * ∂_{n_y}( i m (phi_x - phi_y) )
-        //               = phase * ( - i m ∂_{n_y} phi_y )
+        // ∂_{n_y} phase = phase * ( - i m ∂_{n_y} phi_y )
         const Cplx dphase = phase * (-(Real)m * dn_phi) * iu;
 
-        const Cplx Jm_min = besselJ_int(m, zmin);
-        const Cplx Hm_max = hankel_rad_int(m, zmax, kappa_m);
+        // Axis handling for the J-factor at rmin.
+        Cplx Jm_min = (Real)0;
+        if (rmin_is_zero)
+        {
+          if (m == 0) Jm_min = (Real)1;
+        }
+        else
+        {
+          Jm_min = besselJ_int(m, zmin);
+        }
+
+        const bool use_h1 = (hankel_kind_cache[idx] == 1);
+        const Cplx Hm_max = use_h1 ? hankel1_int(m, zmax) : hankel2_int(m, zmax);
 
         // radial part derivative wrt y (only hits the factor that depends on r_y)
         Cplx dJdn = (Real)0;
@@ -462,7 +408,8 @@ namespace bemtool
         else
         {
           // rmax = r_y, so differentiate H_m(kappa_m r_y)
-          dHdn = kappa_m * hankel_rad_prime_int(m, zmax, kappa_m) * dn_r;
+          const Cplx Hp = use_h1 ? hankel1_prime_int(m, zmax) : hankel2_prime_int(m, zmax);
+          dHdn = kappa_m * Hp * dn_r;
         }
 
         // product rule: ∂n (phase * J * H)
@@ -470,8 +417,8 @@ namespace bemtool
           + phase * dJdn * Hm_max
           + phase * Jm_min * dHdn;
 
-        // prefactor 1/(4i)
-        dGdn += dterm * ((Real)1 / ((Real)4 * iu));
+        dGdn += prefactor * dterm;
+        phase *= e_idphi;
       }
 
       // Match BEMTool DL structure: ker = h * ∂_{n_y}G

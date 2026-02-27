@@ -7,6 +7,17 @@ include_directories(bemtool)
 file(COPY mesh DESTINATION ${CMAKE_BINARY_DIR})
 
 
+include(FetchContent)
+# -----------------------
+# Complex Bessel (FetchContent)
+# -----------------------
+FetchContent_Declare(
+        complex_bessel
+        GIT_REPOSITORY https://github.com/joeydumont/complex_bessel.git
+)
+FetchContent_MakeAvailable(complex_bessel)
+link_libraries(complex_bessel::complex_bessel)
+
 find_package(MPI REQUIRED)
 link_libraries(MPI::MPI_CXX)
 
@@ -19,18 +30,10 @@ add_executable(cylinder2D cylinder2d.cpp)
 add_executable(scatter_TE_PEC_two_trace scatter_TE_PEC_two_trace.cpp)
 
 
-FetchContent_Declare(
-        complex_bessel
-        GIT_REPOSITORY https://github.com/joeydumont/complex_bessel.git
-        GIT_TAG        <PIN_A_TAG_OR_COMMIT_HASH>
-)
-FetchContent_MakeAvailable(complex_bessel)
-link_libraries(complex_bessel::complex_bessel)
 
 # -----------------------
 # GoogleTest (FetchContent)
 # -----------------------
-include(FetchContent)
 FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
