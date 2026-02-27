@@ -46,7 +46,8 @@
 #include "operator/maxwell_op.hpp"
 #include "operator/block_op.hpp"
 #include "operator/block_op_slo.hpp"
-#include "operator/rotating_helmholtz_op.hpp"
+// #include "operator/rotating_helmholtz_op.hpp"
+#include "operator/rotating_helmholtz_singrem_op.hpp"
 
 #include "potential/potential.hpp"
 #include "potential/helmholtz_pot.hpp"
