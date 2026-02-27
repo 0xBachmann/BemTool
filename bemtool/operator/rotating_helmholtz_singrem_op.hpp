@@ -16,10 +16,10 @@ namespace bemtool
 {
   // --- Helpers: integer-order Bessel/Hankel for complex argument ---
   // complex_bessel already implements negative orders via reflection formulae.
-  inline Cplx besselJ_int(const int m, const Cplx& z) { return sp_bessel::besselJ((double)m, z); }
-  inline Cplx besselY_int(const int m, const Cplx& z) { return sp_bessel::besselY((double)m, z); }
-  inline Cplx hankel1_int(const int m, const Cplx& z) { return sp_bessel::hankelH1((double)m, z); }
-  inline Cplx hankel2_int(const int m, const Cplx& z) { return sp_bessel::hankelH2((double)m, z); }
+  inline Cplx besselJ_int(const int m, const Cplx& z) { return sp_bessel::besselJ(m, z); }
+  inline Cplx besselY_int(const int m, const Cplx& z) { return sp_bessel::besselY(m, z); }
+  inline Cplx hankel1_int(const int m, const Cplx& z) { return sp_bessel::hankelH1(m, z); }
+  inline Cplx hankel2_int(const int m, const Cplx& z) { return sp_bessel::hankelH2(m, z); }
 
   // Pick H^(1) vs H^(2) based on sign(Im(kappa_m))
   inline Cplx hankel_rad_int(const int m, const Cplx& z, const Cplx& kappa_m)
@@ -149,13 +149,13 @@ namespace bemtool
 
       // Singular + rotating remainder evaluation (stable when r≈r')
       // We write: G_rot = G_HE_direct + Σ_m (term_rot(m) - term_HE(m)).
-      // For Ω=0, term_rot==term_HE so the sum vanishes and we recover HE to machine precision.
+      // For Ω=0, term_rot==term_HE so the sum vanishes, and we recover HE to machine precision.
       const Real dx_xy = x[0] - y[0];
       const Real dy_xy = x[1] - y[1];
       const Real R = std::hypot(dx_xy, dy_xy);
 
       // Direct Helmholtz singular part (same local singularity): (i/4) H_0^{(1)}(k R)
-      const Cplx zR = Cplx(khat * R, 0);
+      const Cplx zR(khat * R, 0);
       Cplx G = prefactor * hankel1_int(0, zR);
 
       // Remainder mode-sum (converges much faster at r=r')
@@ -188,8 +188,8 @@ namespace bemtool
         const Cplx Hm_rot = (hankel_kind_cache[idx] == 1) ? hankel1_int(m, zmax_rot) : hankel2_int(m, zmax_rot);
 
         // --- reference Helmholtz (non-rotating) Graf term ---
-        const Cplx zmin_he = Cplx(khat * rmin, 0);
-        const Cplx zmax_he = Cplx(khat * rmax, 0);
+        const Cplx zmin_he(khat * rmin, 0);
+        const Cplx zmax_he(khat * rmax, 0);
 
         Cplx Jm_he = 0;
         if (rmin_is_zero)
@@ -243,7 +243,7 @@ namespace bemtool
       const Real dy_xy = x[1] - y[1];
       const Real R = std::hypot(dx_xy, dy_xy);
 
-      const Cplx zR = Cplx(khat * R, 0);
+      const Cplx zR(khat * R, 0);
       Cplx G = prefactor * hankel1_int(0, zR);
 
       const Cplx e_idphi = std::exp(iu * dphi);
@@ -272,8 +272,8 @@ namespace bemtool
 
         const Cplx Hm_rot = (hankel_kind_cache[idx] == 1) ? hankel1_int(m, zmax_rot) : hankel2_int(m, zmax_rot);
 
-        const Cplx zmin_he = Cplx(khat * rmin, 0);
-        const Cplx zmax_he = Cplx(khat * rmax, 0);
+        const Cplx zmin_he(khat * rmin, 0);
+        const Cplx zmax_he(khat * rmax, 0);
 
         Cplx Jm_he = 0;
         if (rmin_is_zero)
@@ -439,8 +439,8 @@ namespace bemtool
         dRdn = - (dx_xy * ny[0] + dy_xy * ny[1]) / R;
       }
 
-      const Cplx zR = Cplx(khat * R, 0);
-      const Cplx H0p = sp_bessel::hankelH1p((double)0, zR, 1); // d/dz H0
+      const Cplx zR(khat * R, 0);
+      const Cplx H0p = sp_bessel::hankelH1p(0, zR, 1); // d/dz H0
       Cplx dGdn = prefactor * (Cplx(khat, 0) * H0p) * dRdn;
 
       // Phase recurrence (avoid exp() per mode)
@@ -490,7 +490,7 @@ namespace bemtool
           + phase * Jm_min_rot * dHdn_rot;
 
         // ---------- reference Helmholtz term pieces ----------
-        const Cplx kappa_he = Cplx(khat, 0);
+        const Cplx kappa_he(khat, 0);
         const Cplx zmin_he = kappa_he * rmin;
         const Cplx zmax_he = kappa_he * rmax;
 
@@ -528,8 +528,12 @@ namespace bemtool
         phase *= e_idphi;
       }
 
-      // Match BEMTool DL structure: ker = h * ∂_{n_y}G
-      ker = h * dGdn;
+      // BEMTool's 2D Helmholtz DL kernel is defined with an extra minus sign:
+      //   HE,DL_OP,2: ker = -h * (n_y · (x-y)) * (1/r) * (i/4) * k * H_1^{(1)}(k r)
+      // which corresponds to  -∂_{n_y} G  when  G = (i/4) H_0^{(1)}(k r)
+      // (since d/dr H_0^{(1)}(z) = -H_1^{(1)}(z)). See helmholtz_op.hpp.
+      // To stay consistent with BEMTool, we therefore return ker = -h * ∂_{n_y}G.
+      ker = -h * dGdn;
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
       {
