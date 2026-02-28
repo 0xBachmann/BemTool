@@ -54,6 +54,7 @@
 #include "potential/laplace_pot.hpp"
 #include "potential/yukawa_pot.hpp"
 #include "potential/maxwell_pot.hpp"
+#include "potential/rotating_helmholtz_singrem_pot.hpp"
 
 #include "quadrature/dunavant.hpp"
 #include "quadrature/quad.hpp"

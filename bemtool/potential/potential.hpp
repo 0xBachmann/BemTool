@@ -65,6 +65,13 @@ public:
   ker(my,k), meshy(my), nodey(GeometryOf(my)), qr(10) {};
 
 
+  Potential<KernelType>(const MeshY& my, const Real& k, const Real& Omega_,
+                                const Real& c_,
+                                const int&  M_,
+                                const bool& keep_D2_):
+  ker(my,k, Omega_, c_, M_, keep_D2_), meshy(my), nodey(GeometryOf(my)), qr(10) {};
+
+
   const MatType& operator()(const R3& x, const int& jy){
     const std::vector<RdY>&  t  = qr.GetPoints();
     const std::vector<Real>& w  = qr.GetWeights();
