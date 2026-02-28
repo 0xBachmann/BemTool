@@ -16,6 +16,8 @@
 
 using namespace bemtool;
 
+static constexpr auto mesh_file = "mesh/carre4.msh";
+
 static inline Real rel_err(const Cplx& a, const Cplx& b)
 {
   const Real na = std::abs(a);
@@ -27,9 +29,9 @@ static inline Real rel_err(const Cplx& a, const Cplx& b)
 TEST(RotatingHelmholtz, RH_SL_converges_to_HE_SL_when_Omega0)
 {
   // ---- Load a standard boundary mesh (same as test2D) ----
-  Geometry node("mesh/circle.msh");
+  Geometry node(mesh_file);
   Mesh1D mesh;
-  mesh.Load(node, /*physical_tag=*/1);
+  mesh.Load(node);
   Orienting(mesh);
 
   const int nb_elt = NbElt(mesh);
@@ -105,9 +107,9 @@ TEST(RotatingHelmholtz, RH_SL_converges_to_HE_SL_when_Omega0)
 TEST(RotatingHelmholtz, RH_DL_converges_to_HE_DL_when_Omega0)
 {
   // ---- Load a standard boundary mesh (same as test2D) ----
-  Geometry node("mesh/circle.msh");
+  Geometry node(mesh_file);
   Mesh1D mesh;
-  mesh.Load(node, /*physical_tag=*/1);
+  mesh.Load(node);
   Orienting(mesh);
 
   const int nb_elt = NbElt(mesh);

@@ -29,6 +29,8 @@ add_executable(test3D test3D.cpp)
 add_executable(cylinder2D cylinder2d.cpp)
 add_executable(scatter_TE_PEC_two_trace scatter_TE_PEC_two_trace.cpp)
 
+add_executable(rotating_dielectric_scatter tests/rotating_dielectric_scatter_2D.cpp)
+
 
 
 # -----------------------
@@ -52,5 +54,14 @@ target_link_libraries(rh_converges_to_he
         GTest::gtest_main
 )
 
+add_executable(rh_potential_converges_to_he
+        tests/rh_potential_converges_to_he.cpp
+)
+
+target_link_libraries(rh_potential_converges_to_he
+        GTest::gtest_main
+)
+
+
 include(GoogleTest)
-gtest_discover_tests(rh_converges_to_he)
+gtest_discover_tests(rh_converges_to_he rh_potential_converges_to_he)
