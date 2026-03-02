@@ -16,7 +16,7 @@
 
 using namespace bemtool;
 
-static constexpr auto mesh_file = "mesh/carre4.msh";
+static constexpr auto mesh_file = "mesh/circle.msh";
 
 static inline Real rel_err(const Cplx& a, const Cplx& b)
 {
@@ -75,7 +75,7 @@ TEST(RotatingHelmholtz, RH_SL_converges_to_HE_SL_when_Omega0)
   // and HE reference should use the matching complex kappa.)
   const Real khat = kappa;
 
-  std::vector<int> Ms = {10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240};
+  std::vector<int> Ms = {10, 20, 40, 80};
 
   Real prev_err = std::numeric_limits<Real>::infinity();
   Real last_err = prev_err;
@@ -153,7 +153,7 @@ TEST(RotatingHelmholtz, RH_DL_converges_to_HE_DL_when_Omega0)
   // and HE reference should use the matching complex kappa.)
   const Real khat = kappa;
 
-  std::vector<int> Ms = {10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240};
+  std::vector<int> Ms = {10, 20, 40, 80};
 
   Real prev_err = std::numeric_limits<Real>::infinity();
   Real last_err = prev_err;

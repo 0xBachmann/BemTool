@@ -47,14 +47,14 @@
 #include "operator/block_op.hpp"
 #include "operator/block_op_slo.hpp"
 // #include "operator/rotating_helmholtz_op.hpp"
-#include "operator/rotating_helmholtz_singrem_op.hpp"
+#include "operator/rotating_helmholtz_singrem_real_op.hpp"
 
 #include "potential/potential.hpp"
 #include "potential/helmholtz_pot.hpp"
 #include "potential/laplace_pot.hpp"
 #include "potential/yukawa_pot.hpp"
 #include "potential/maxwell_pot.hpp"
-#include "potential/rotating_helmholtz_singrem_pot.hpp"
+#include "potential/rotating_helmholtz_singrem_real_pot.hpp"
 
 #include "quadrature/dunavant.hpp"
 #include "quadrature/quad.hpp"

@@ -49,7 +49,7 @@ int main(int argc, char* argv[])
   const Real eps_in = (argc > 3) ? std::atof(argv[3]) : 2.25;  // relative permittivity inside
   const Real mu_in  = (argc > 4) ? std::atof(argv[4]) : 1.0;   // relative permeability inside
   const Real Omega  = (argc > 5) ? std::atof(argv[5]) : 0.2;   // rotation rate (your model units)
-  const int  Mtrunc = (argc > 6) ? std::atoi(argv[6]) : 20;    // modal truncation
+  const int  Mtrunc = (argc > 6) ? std::atoi(argv[6]) : 5;    // modal truncation
 
   // outside medium (vacuum-like)
   const Real eps_out = 1.0;

@@ -7,45 +7,8 @@
 #include <cmath>
 #include <vector>
 
-// Complex-valued Bessel/Hankel functions (AMOS wrapper).
-// API: sp_bessel::besselJ / besselJp / hankelH1 / hankelH1p / hankelH2 / hankelH2p
-// See: https://blog.joey-dumont.ca/complex_bessel/docs.html
-#include <complex_bessel.h>
-
 namespace bemtool
 {
-  //TODO bessel functions dont need to be complex?
-  // --- Helpers: integer-order Bessel/Hankel for complex argument ---
-  // complex_bessel already implements negative orders via reflection formulae.
-  inline Cplx besselJ_int(const int m, const Cplx& z) { return sp_bessel::besselJ(m, z); }
-  inline Cplx besselY_int(const int m, const Cplx& z) { return sp_bessel::besselY(m, z); }
-  inline Cplx hankel1_int(const int m, const Cplx& z) { return sp_bessel::hankelH1(m, z); }
-  inline Cplx hankel2_int(const int m, const Cplx& z) { return sp_bessel::hankelH2(m, z); }
-
-  // Pick H^(1) vs H^(2) based on sign(Im(kappa_m))
-  inline Cplx hankel_rad_int(const int m, const Cplx& z, const Cplx& kappa_m)
-  {
-    const Real imk = std::imag(kappa_m);
-    if (imk > static_cast<Real>(0)) return hankel1_int(m, z);
-    if (imk < static_cast<Real>(0)) return hankel2_int(m, z);
-    return hankel1_int(m, z); // Im=0: outgoing convention
-  }
-
-  // Square-root branch choice used to define kappa_m = sqrt(kappa_m^2).
-  // We enforce the "radiation"/decay-friendly branch
-  //   Im(kappa_m) >= 0, and if Im(kappa_m)=0 then Re(kappa_m) >= 0.
-  // With the far-field asymptotics H_m^{(1)}(kappa r) ~ exp(i kappa r)/sqrt(r),
-  // this ensures outgoing oscillations for real kappa>0 and exponential decay for Im(kappa)>0.
-  inline Cplx kappa_from_kappa2(const Cplx& kappa2)
-  {
-    Cplx k = std::sqrt(kappa2);
-    assert(std::imag(k) == 0);
-    const Real im = std::imag(k);
-    const Real re = std::real(k);
-    if (im < static_cast<Real>(0) || (im == static_cast<Real>(0) && re < static_cast<Real>(0))) k = -k;
-    return k;
-  }
-
   // =====================================================================================
   // NEW equation enum tag: RH  (Rotating Helmholtz)
   // You will add RH to the equation enum used by BIOpKernelTraits.
@@ -78,8 +41,7 @@ namespace bemtool
     const bool keep_D2; // whether to include -Omega^2 m^2 / c^2 term
 
     // Precomputed per-mode values (m = -M..M).
-    std::vector<Cplx> kappa_m_cache;
-    std::vector<int> hankel_kind_cache; // 1 => H^(1), 2 => H^(2)
+    std::vector<Real> kappa_m_cache;
     const Cplx prefactor; // i/4 (consistent with HE convention)
 
     // Cached element data
@@ -94,13 +56,12 @@ namespace bemtool
                const Real& khat_,
                const Real& Omega_ = 0.,
                const Real& c_ = 1.,
-               const int& M_ = 20,
+               const int& M_ = 5,
                const bool& keep_D2_ = false)
       : meshx(mx), meshy(my),
         phix(mx), phiy(my),
         khat(khat_), Omega(Omega_), c(c_), M(M_), keep_D2(keep_D2_)
       , kappa_m_cache(2 * M_ + 1)
-      , hankel_kind_cache(2 * M_ + 1, 1)
       , prefactor(iu / static_cast<Real>(4))
     {
       // Precompute kappa_m and Hankel kind selection once per kernel instance.
@@ -110,15 +71,12 @@ namespace bemtool
         //   (k^2 - 2 i k D) + D^2  (i.e. multiply (-k^2 + 2 i k D) by -1, keep D^2 as-is).
         // After Fourier in phi: D -> (Omega/c) * (i m), hence -2 i k D -> +2 k m (Omega/c).
         // D^2 contributes -(Omega^2/c^2) m^2.
-        Cplx kappa2 = +(khat * khat) + static_cast<Real>(2) * khat * static_cast<Real>(m) * (Omega / c);
+        Real kappa2 = +(khat * khat) + static_cast<Real>(2) * khat * static_cast<Real>(m) * (Omega / c);
         if (keep_D2) kappa2 -= (Omega * Omega) * static_cast<Real>(m * m) / (c * c);
 
-        const Cplx kappa_m = kappa_from_kappa2(kappa2);
+        const Real kappa_m = std::sqrt(kappa2);
         const std::size_t idx = (m + M);
         kappa_m_cache[idx] = kappa_m;
-
-        const Real imk = std::imag(kappa_m);
-        hankel_kind_cache[idx] = (imk < static_cast<Real>(0)) ? 2 : 1; // Im=0 => outgoing => H^(1)
       }
     }
 
@@ -157,8 +115,8 @@ namespace bemtool
       const Real R = std::hypot(dx_xy, dy_xy);
 
       // Direct Helmholtz singular part (same local singularity): (i/4) H_0^{(1)}(k R)
-      const Cplx zR(khat * R, 0);
-      Cplx G = prefactor * hankel1_int(0, zR);
+      const Real zR(khat * R);
+      Cplx G = prefactor * Hankel(0, zR);
 
       // Remainder mode-sum (converges much faster at r=r')
       // Build phases by recurrence to avoid exp() per mode.
@@ -173,9 +131,9 @@ namespace bemtool
         const std::size_t idx = (m + M);
 
         // --- rotating term ---
-        const Cplx kappa_m = kappa_m_cache[idx];
-        const Cplx zmin_rot = kappa_m * rmin;
-        const Cplx zmax_rot = kappa_m * rmax;
+        const Real kappa_m = kappa_m_cache[idx];
+        const Real zmin_rot = kappa_m * rmin;
+        const Real zmax_rot = kappa_m * rmax;
 
         Cplx Jm_rot = 0;
         if (rmin_is_zero)
@@ -184,14 +142,14 @@ namespace bemtool
         }
         else
         {
-          Jm_rot = besselJ_int(m, zmin_rot);
+          Jm_rot = BesselJ(m, zmin_rot);
         }
 
-        const Cplx Hm_rot = (hankel_kind_cache[idx] == 1) ? hankel1_int(m, zmax_rot) : hankel2_int(m, zmax_rot);
+        const Cplx Hm_rot = Hankel(m, zmax_rot);
 
         // --- reference Helmholtz (non-rotating) Graf term ---
-        const Cplx zmin_he(khat * rmin, 0);
-        const Cplx zmax_he(khat * rmax, 0);
+        const Real zmin_he = khat * rmin;
+        const Real zmax_he = khat * rmax;
 
         Cplx Jm_he = 0;
         if (rmin_is_zero)
@@ -200,10 +158,10 @@ namespace bemtool
         }
         else
         {
-          Jm_he = besselJ_int(m, zmin_he);
+          Jm_he = BesselJ(m, zmin_he);
         }
 
-        const Cplx Hm_he = hankel1_int(m, zmax_he);
+        const Cplx Hm_he = Hankel(m, zmax_he);
 
         // Add remainder contribution
         G += prefactor * phase * (Jm_rot * Hm_rot - Jm_he * Hm_he);
@@ -245,8 +203,8 @@ namespace bemtool
       const Real dy_xy = x[1] - y[1];
       const Real R = std::hypot(dx_xy, dy_xy);
 
-      const Cplx zR(khat * R, 0);
-      Cplx G = prefactor * hankel1_int(0, zR);
+      const Real zR = khat * R;
+      Cplx G = prefactor * Hankel(0, zR);
 
       const Cplx e_idphi = std::exp(iu * dphi);
       Cplx phase = std::exp(iu * static_cast<Real>(-M) * dphi);
@@ -258,9 +216,9 @@ namespace bemtool
       {
         const std::size_t idx = (m + M);
 
-        const Cplx kappa_m = kappa_m_cache[idx];
-        const Cplx zmin_rot = kappa_m * rmin;
-        const Cplx zmax_rot = kappa_m * rmax;
+        const Real kappa_m = kappa_m_cache[idx];
+        const Real zmin_rot = kappa_m * rmin;
+        const Real zmax_rot = kappa_m * rmax;
 
         Cplx Jm_rot = 0;
         if (rmin_is_zero)
@@ -269,13 +227,13 @@ namespace bemtool
         }
         else
         {
-          Jm_rot = besselJ_int(m, zmin_rot);
+          Jm_rot = BesselJ(m, zmin_rot);
         }
 
-        const Cplx Hm_rot = (hankel_kind_cache[idx] == 1) ? hankel1_int(m, zmax_rot) : hankel2_int(m, zmax_rot);
+        const Cplx Hm_rot = Hankel(m, zmax_rot);
 
-        const Cplx zmin_he(khat * rmin, 0);
-        const Cplx zmax_he(khat * rmax, 0);
+        const Real zmin_he = khat * rmin;
+        const Real zmax_he = khat * rmax;
 
         Cplx Jm_he = 0;
         if (rmin_is_zero)
@@ -284,10 +242,10 @@ namespace bemtool
         }
         else
         {
-          Jm_he = besselJ_int(m, zmin_he);
+          Jm_he = BesselJ(m, zmin_he);
         }
 
-        const Cplx Hm_he = hankel1_int(m, zmax_he);
+        const Cplx Hm_he = Hankel(m, zmax_he);
 
         G += prefactor * phase * (Jm_rot * Hm_rot - Jm_he * Hm_he);
         phase *= e_idphi;
@@ -336,8 +294,7 @@ namespace bemtool
     const bool keep_D2;
 
     // Precomputed per-mode values (m = -M..M).
-    std::vector<Cplx> kappa_m_cache;
-    std::vector<int> hankel_kind_cache; // 1 => H^(1), 2 => H^(2)
+    std::vector<Real> kappa_m_cache;
     const Cplx prefactor; // i/4 (consistent with HE convention)
 
     // Cached element data
@@ -347,38 +304,30 @@ namespace bemtool
     Real h{};
     Cplx ker;
 
-    // ---- argument-derivative via complex_bessel derivatives (more stable than m±1 recurrences) ----
-    static inline Cplx besselJ_prime_int(const int m, const Cplx& z) { return sp_bessel::besselJp(m, z, 1); }
-    static inline Cplx hankel1_prime_int(const int m, const Cplx& z) { return sp_bessel::hankelH1p(m, z, 1); }
-    static inline Cplx hankel2_prime_int(const int m, const Cplx& z) { return sp_bessel::hankelH2p(m, z, 1); }
-
   public:
     BIOpKernel(const typename Trait::MeshX& mx,
                const typename Trait::MeshY& my,
                const Real& khat_,
                const Real& Omega_ = 0.,
                const Real& c_ = 1.,
-               const int& M_ = 20,
+               const int& M_ = 5,
                const bool& keep_D2_ = false)
       : meshx(mx), meshy(my),
         normaly(NormalTo(my)),
         phix(mx), phiy(my),
         khat(khat_), Omega(Omega_), c(c_), M(M_), keep_D2(keep_D2_)
       , kappa_m_cache((2 * M_ + 1))
-      , hankel_kind_cache((2 * M_ + 1), 1)
       , prefactor(iu / static_cast<Real>(4))
     {
       for (int m = -M; m <= M; ++m)
       {
         // See SL kernel for sign convention.
-        Cplx kappa2 = +(khat * khat) + static_cast<Real>(2) * khat * static_cast<Real>(m) * (Omega / c);
+        Real kappa2 = +(khat * khat) + static_cast<Real>(2) * khat * static_cast<Real>(m) * (Omega / c);
         if (keep_D2) kappa2 -= (Omega * Omega) * static_cast<Real>(m * m) / (c * c);
 
-        const Cplx kappa_m = kappa_from_kappa2(kappa2);
+        const Real kappa_m = std::sqrt(kappa2);
         const std::size_t idx = (m + M);
         kappa_m_cache[idx] = kappa_m;
-        const Real imk = std::imag(kappa_m);
-        hankel_kind_cache[idx] = (imk < static_cast<Real>(0)) ? 2 : 1;
       }
     }
 
@@ -441,9 +390,9 @@ namespace bemtool
         dRdn = - (dx_xy * ny[0] + dy_xy * ny[1]) / R;
       }
 
-      const Cplx zR(khat * R, 0);
-      const Cplx H0p = sp_bessel::hankelH1p(0, zR, 1); // d/dz H0
-      Cplx dGdn = prefactor * (Cplx(khat, 0) * H0p) * dRdn;
+      const Real zR = khat * R;
+      const Cplx H0p = DHankel_Dx(0, zR); // d/dz H0
+      Cplx dGdn = prefactor * (khat * H0p) * dRdn;
 
       // Phase recurrence (avoid exp() per mode)
       const Cplx e_idphi = std::exp(iu * dphi);
@@ -456,9 +405,9 @@ namespace bemtool
         const std::size_t idx = (m + M);
 
         // ---------- rotating term pieces ----------
-        const Cplx kappa_m = kappa_m_cache[idx];
-        const Cplx zmin_rot = kappa_m * rmin;
-        const Cplx zmax_rot = kappa_m * rmax;
+        const Real kappa_m = kappa_m_cache[idx];
+        const Real zmin_rot = kappa_m * rmin;
+        const Real zmax_rot = kappa_m * rmax;
 
         const Cplx dphase = phase * (-static_cast<Real>(m) * dn_phi) * iu; // ∂n phase
 
@@ -469,21 +418,20 @@ namespace bemtool
         }
         else
         {
-          Jm_min_rot = besselJ_int(m, zmin_rot);
+          Jm_min_rot = BesselJ(m, zmin_rot);
         }
 
-        const bool use_h1_rot = (hankel_kind_cache[idx] == 1);
-        const Cplx Hm_max_rot = use_h1_rot ? hankel1_int(m, zmax_rot) : hankel2_int(m, zmax_rot);
+        const Cplx Hm_max_rot = Hankel(m, zmax_rot);
 
         Cplx dJdn_rot = 0;
         Cplx dHdn_rot = 0;
         if (y_is_rmin)
         {
-          dJdn_rot = kappa_m * besselJ_prime_int(m, zmin_rot) * dn_r;
+          dJdn_rot = kappa_m * DBesselJ_Dx(m, zmin_rot) * dn_r;
         }
         else
         {
-          const Cplx Hp_rot = use_h1_rot ? hankel1_prime_int(m, zmax_rot) : hankel2_prime_int(m, zmax_rot);
+          const Cplx Hp_rot = DHankel_Dx(m, zmax_rot);
           dHdn_rot = kappa_m * Hp_rot * dn_r;
         }
 
@@ -492,9 +440,9 @@ namespace bemtool
           + phase * Jm_min_rot * dHdn_rot;
 
         // ---------- reference Helmholtz term pieces ----------
-        const Cplx kappa_he(khat, 0);
-        const Cplx zmin_he = kappa_he * rmin;
-        const Cplx zmax_he = kappa_he * rmax;
+        const Real kappa_he = khat;
+        const Real zmin_he = kappa_he * rmin;
+        const Real zmax_he = kappa_he * rmax;
 
         Cplx Jm_min_he = 0;
         if (rmin_is_zero)
@@ -503,20 +451,20 @@ namespace bemtool
         }
         else
         {
-          Jm_min_he = besselJ_int(m, zmin_he);
+          Jm_min_he = BesselJ(m, zmin_he);
         }
 
-        const Cplx Hm_max_he = hankel1_int(m, zmax_he);
+        const Cplx Hm_max_he = Hankel(m, zmax_he);
 
         Cplx dJdn_he = 0;
         Cplx dHdn_he = 0;
         if (y_is_rmin)
         {
-          dJdn_he = kappa_he * besselJ_prime_int(m, zmin_he) * dn_r;
+          dJdn_he = kappa_he * DBesselJ_Dx(m, zmin_he) * dn_r;
         }
         else
         {
-          const Cplx Hp_he = hankel1_prime_int(m, zmax_he);
+          const Cplx Hp_he = DHankel_Dx(m, zmax_he);
           dHdn_he = kappa_he * Hp_he * dn_r;
         }
 
