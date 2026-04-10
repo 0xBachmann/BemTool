@@ -178,7 +178,7 @@ TEST(RotatingHelmholtz, RH_solution_matches_HE_solution_off_boundary_when_Omega0
   }
 
   // Solve both
-  EigenDense::VectorType mu_he_ev, mu_rh_ev;
+  EigenDense::VectorType mu_he_ev(n), mu_rh_ev(n);
   lu_solve(Ahe, rhs, mu_he_ev);
   lu_solve(Arh, rhs, mu_rh_ev);
 

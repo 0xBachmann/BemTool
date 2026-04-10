@@ -25,6 +25,9 @@
 #include "../equations.hpp"
 #include "../miscellaneous/specialfct.hpp"
 
+#include <type_traits>
+#include <utility>
+
 namespace bemtool
 {
   /*=====================
@@ -76,26 +79,17 @@ namespace bemtool
     Cplx val, val2;
 
   public:
-    BIOp<KernelType>(const MeshX& mx, const MeshY& my, const Real& k) :
-      meshx(mx), nodex(GeometryOf(mx)), ker(mx, my, k),
-      meshy(my), nodey(GeometryOf(my)), qr(6)
-    {
-      for (int j = 0; j < dimx; j++) { ax[j + 1][j] = 1; }
+    template <class... Args,
+              class = std::enable_if_t<
+                std::is_constructible_v<KernelType, const MeshX&, const MeshY&, Args...>
+              >>
+    BIOp(const MeshX& mx, const MeshY& my, Args&&... args)
+      : meshx(mx), nodex(GeometryOf(mx)),
+        ker(mx,  my, std::forward<Args>(args)...),
+        meshy(my), nodey(GeometryOf(my)), qr(6)
+    { for (int j = 0; j < dimx; j++) { ax[j + 1][j] = 1; }
       for (int j = 0; j < dimy; j++) { ay[j + 1][j] = 1; }
-    };
-
-
-    BIOp<KernelType>(const MeshX& mx, const MeshY& my, const Real& k,
-                     const Real& Omega_,
-                     const Real& c_,
-                     const int& M_,
-                     const bool& keep_D2_) :
-      meshx(mx), nodex(GeometryOf(mx)), ker(mx, my, k, Omega_, c_, M_, keep_D2_),
-      meshy(my), nodey(GeometryOf(my)), qr(6)
-    {
-      for (int j = 0; j < dimx; j++) { ax[j + 1][j] = 1; }
-      for (int j = 0; j < dimy; j++) { ay[j + 1][j] = 1; }
-    };
+    }
 
     void ChooseQuad(const int& jx, const int& jy)
     {

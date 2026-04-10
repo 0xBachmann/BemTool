@@ -24,6 +24,8 @@
 #include "../equations.hpp"
 #include "../miscellaneous/specialfct.hpp"
 
+#include <type_traits>
+#include <utility>
 
 namespace bemtool {
 
@@ -60,16 +62,14 @@ private:
   Cplx             val,val2;
 
 public:
-
-  Potential<KernelType>(const MeshY& my, const Real& k):
-  ker(my,k), meshy(my), nodey(GeometryOf(my)), qr(10) {};
-
-
-  Potential<KernelType>(const MeshY& my, const Real& k, const Real& Omega_,
-                                const Real& c_,
-                                const int&  M_,
-                                const bool& keep_D2_):
-  ker(my,k, Omega_, c_, M_, keep_D2_), meshy(my), nodey(GeometryOf(my)), qr(10) {};
+  template<class... Args,
+           class = std::enable_if_t<
+             std::is_constructible_v<KernelType, const MeshY&, Args...>
+           >>
+  Potential(const MeshY& my, Args&&... args)
+  : meshy(my), nodey(GeometryOf(my)),
+    ker(my, std::forward<Args>(args)...),
+    qr(10) {}
 
 
   const MatType& operator()(const R3& x, const int& jy){

@@ -26,6 +26,15 @@ static inline Real rel_err(const Cplx& a, const Cplx& b)
   return std::abs(a - b) / denom;
 }
 
+// Observed convergence order when the control parameter is halved each step:
+// If e(Omega) ~ C * Omega^p, then p = log(e_i/e_{i+1}) / log(2).
+static inline Real observed_order_halving(const Real e_i, const Real e_ip1)
+{
+  const Real ei = std::max<Real>(e_i, 1e-300);
+  const Real eip = std::max<Real>(e_ip1, 1e-300);
+  return std::log(ei / eip) / std::log(2.0);
+}
+
 TEST(RotatingHelmholtz, RH_SL_converges_to_HE_SL_when_Omega0)
 {
   // ---- Load a standard boundary mesh (same as test2D) ----
@@ -180,5 +189,192 @@ TEST(RotatingHelmholtz, RH_DL_converges_to_HE_DL_when_Omega0)
 
   // Final accuracy target (adjust if your kappa or point choice changes)
   EXPECT_LT(last_err, 1e-8) << "RH DL did not converge close enough to HE DL at largest M.";
+}
+
+TEST(RotatingHelmholtz, RH_SL_converges_to_HE_SL_as_Omega_halves)
+{
+  // ---- Load a standard boundary mesh (same as test2D) ----
+  Geometry node(mesh_file);
+  Mesh1D mesh;
+  mesh.Load(node);
+  Orienting(mesh);
+
+  const int nb_elt = NbElt(mesh);
+  ASSERT_GT(nb_elt, 4);
+
+  // Pick two well-separated elements (avoid near-singular behavior)
+  const int ix = 0;
+  const int iy = nb_elt / 2;
+
+  using PhiX = P1_2D;
+  using PhiY = P1_2D;
+
+  // Reference (Omega = 0) kernel
+  const Real kappa = 1.0;
+  HE_SL_2D_P1xP1 he(mesh, mesh, kappa);
+  he.Assign(ix, iy);
+
+  using TraitHE = BIOpKernelTraits<HE, SL_OP, 2, PhiX, PhiY>;
+  typename TraitHE::Rdx tx;
+  typename TraitHE::Rdy ty;
+  tx[0] = 0.37;
+  ty[0] = 0.61;
+
+  const Cplx he_val = he(tx, ty, /*kx=*/0, /*ky=*/0);
+
+  // RH parameters
+  const Real c = 1.0;
+  const bool keep_D2 = false;
+  const Real khat = kappa;
+
+  // Make truncation error negligible so we're measuring Omega -> 0 convergence.
+  // (If this is too slow in CI, reduce M but keep it fixed across Omega.)
+  const int M = 20;
+
+  // Omega sequence: 1, 1/2, 1/4, ...
+  std::vector<Real> Omegas;
+  {
+    Real Om = 1.0 / (2 * M + 1);
+    for (int i = 0; i < 32; ++i)
+    {
+      Omegas.push_back(Om);
+      Om *= 0.5;
+    }
+  }
+
+  std::vector<Real> errs;
+  errs.reserve(Omegas.size());
+
+  for (Real Omega : Omegas)
+  {
+    RH_SL_2D_P1xP1 rh(mesh, mesh, khat, Omega, c, M, keep_D2);
+    rh.Assign(ix, iy);
+
+    const Cplx rh_val = rh(tx, ty, /*kx=*/0, /*ky=*/0);
+
+    const Real e = rel_err(rh_val, he_val);
+    errs.push_back(e);
+  }
+
+  // Expect a clear decreasing trend as Omega -> 0.
+  // Allow a little wiggle due to floating point + any residual truncation.
+  for (std::size_t i = 0; i + 1 < errs.size(); ++i)
+  {
+    EXPECT_LE(errs[i + 1], errs[i] * 1.25)
+      << "Error did not decrease when halving Omega: Omega=" << Omegas[i]
+      << " -> " << Omegas[i + 1] << ", err=" << errs[i] << " -> " << errs[i + 1];
+  }
+
+  // Estimate observed order p in e ~ C * Omega^p.
+  // Use the last few steps (small Omega) for the most asymptotic behavior.
+  std::vector<Real> ps;
+  for (std::size_t i = 0; i + 1 < errs.size(); ++i)
+  {
+    ps.push_back(observed_order_halving(errs[i], errs[i + 1]));
+  }
+  // Robust summary: median of the last 3 orders
+  const std::size_t n = ps.size();
+  ASSERT_GE(n, 4u);
+  std::vector<Real> tail = {ps[n - 3], ps[n - 2], ps[n - 1]};
+  std::sort(tail.begin(), tail.end());
+  const Real p_med = tail[1];
+  std::cout << "Observed Omega->0 convergence order " << p_med << std::endl;
+
+  // Theoretical order depends on your exact RH formulation; in most consistent
+  // observer expansions, the leading correction is at least O(Omega).
+  // This asserts you see *at least* first-order convergence.
+  EXPECT_GT(p_med, 0.8)
+    << "Observed Omega->0 convergence order (median of last 3 halvings) too low: p_med=" << p_med;
+
+  // Also ensure we're actually close for the smallest Omega.
+  EXPECT_LT(errs.back(), 1e-6)
+    << "RH SL not sufficiently close to HE SL at smallest Omega=" << Omegas.back() << ".";
+}
+
+TEST(RotatingHelmholtz, RH_DL_converges_to_HE_DL_as_Omega_halves)
+{
+  // ---- Load a standard boundary mesh (same as test2D) ----
+  Geometry node(mesh_file);
+  Mesh1D mesh;
+  mesh.Load(node);
+  Orienting(mesh);
+
+  const int nb_elt = NbElt(mesh);
+  ASSERT_GT(nb_elt, 4);
+
+  // Pick two well-separated elements (avoid near-singular behavior)
+  const int ix = 0;
+  const int iy = nb_elt / 2;
+
+  using PhiX = P1_2D;
+  using PhiY = P1_2D;
+
+  // Reference (Omega = 0) kernel
+  const Real kappa = 1.0;
+  HE_DL_2D_P1xP1 he(mesh, mesh, kappa);
+  he.Assign(ix, iy);
+
+  using TraitHE = BIOpKernelTraits<HE, DL_OP, 2, PhiX, PhiY>;
+  typename TraitHE::Rdx tx;
+  typename TraitHE::Rdy ty;
+  tx[0] = 0.37;
+  ty[0] = 0.61;
+
+  const Cplx he_val = he(tx, ty, /*kx=*/0, /*ky=*/0);
+
+  // RH parameters
+  const Real c = 1.0;
+  const bool keep_D2 = false;
+  const Real khat = kappa;
+  const int M = 20;
+
+  std::vector<Real> Omegas;
+  {
+    Real Om = 1.0 / (2 * M + 1);
+    for (int i = 0; i <32; ++i)
+    {
+      Omegas.push_back(Om);
+      Om *= 0.5;
+    }
+  }
+
+  std::vector<Real> errs;
+  errs.reserve(Omegas.size());
+
+  for (Real Omega : Omegas)
+  {
+    RH_DL_2D_P1xP1 rh(mesh, mesh, khat, Omega, c, M, keep_D2);
+    rh.Assign(ix, iy);
+
+    const Cplx rh_val = rh(tx, ty, /*kx=*/0, /*ky=*/0);
+    const Real e = rel_err(rh_val, he_val);
+    errs.push_back(e);
+  }
+
+  for (std::size_t i = 0; i + 1 < errs.size(); ++i)
+  {
+    EXPECT_LE(errs[i + 1], errs[i] * 1.25)
+      << "Error did not decrease when halving Omega: Omega=" << Omegas[i]
+      << " -> " << Omegas[i + 1] << ", err=" << errs[i] << " -> " << errs[i + 1];
+  }
+
+  std::vector<Real> ps;
+  for (std::size_t i = 0; i + 1 < errs.size(); ++i)
+  {
+    ps.push_back(observed_order_halving(errs[i], errs[i + 1]));
+  }
+  const std::size_t n = ps.size();
+  ASSERT_GE(n, 4u);
+  std::vector<Real> tail = {ps[n - 3], ps[n - 2], ps[n - 1]};
+  std::sort(tail.begin(), tail.end());
+  const Real p_med = tail[1];
+
+  std::cout << "Observed Omega->0 convergence order " << p_med << std::endl;
+
+  EXPECT_GT(p_med, 0.8)
+    << "Observed Omega->0 convergence order (median of last 3 halvings) too low: p_med=" << p_med;
+
+  EXPECT_LT(errs.back(), 1e-6)
+    << "RH DL not sufficiently close to HE DL at smallest Omega=" << Omegas.back() << ".";
 }
 

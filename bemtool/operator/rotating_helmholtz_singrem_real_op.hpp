@@ -73,6 +73,7 @@ namespace bemtool
         // D^2 contributes -(Omega^2/c^2) m^2.
         Real kappa2 = +(khat * khat) + static_cast<Real>(2) * khat * static_cast<Real>(m) * (Omega / c);
         if (keep_D2) kappa2 -= (Omega * Omega) * static_cast<Real>(m * m) / (c * c);
+        assert(kappa2 > 0);
 
         const Real kappa_m = std::sqrt(kappa2);
         const std::size_t idx = (m + M);
@@ -324,6 +325,7 @@ namespace bemtool
         // See SL kernel for sign convention.
         Real kappa2 = +(khat * khat) + static_cast<Real>(2) * khat * static_cast<Real>(m) * (Omega / c);
         if (keep_D2) kappa2 -= (Omega * Omega) * static_cast<Real>(m * m) / (c * c);
+        assert(kappa2 > 0);
 
         const Real kappa_m = std::sqrt(kappa2);
         const std::size_t idx = (m + M);
