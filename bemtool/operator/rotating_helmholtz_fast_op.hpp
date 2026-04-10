@@ -110,7 +110,8 @@ namespace bemtool
 
   // ============================================================
   // DL operator with reversed kernel \hat G
-  // kernel convention: - \partial_{n_y} \hat G
+  // Mirrors native Helmholtz DL structure and adds the smooth
+  // rotating correction through the phase factor.
   // ============================================================
   template <typename PhiX, typename PhiY>
   class BIOpKernel<RH, DL_OP, 2, PhiX, PhiY>
@@ -129,11 +130,10 @@ namespace bemtool
     PhiY phiy;
 
     const Real k0, eps, mu, Omega, khat, alpha;
-    const Cplx prefactor;
 
-    R3 x0, y0, x, y, ny;
-    Real h{};
-    Cplx ker;
+    R3 x0_y0, x_y, x, y, ny;
+    Real h{}, r{}, dotny{}, det{};
+    Cplx ker, phase, Gst;
 
   public:
     BIOpKernel(const typename Trait::MeshX& mx,
@@ -146,16 +146,14 @@ namespace bemtool
         phix(mx), phiy(my),
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_),
         khat(k0_ * std::sqrt(eps_ * mu_)),
-        alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.),
-        prefactor(iu / static_cast<Real>(4))
+        alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
     {}
 
     void Assign(const int& ix, const int& iy)
     {
       const typename Trait::EltX& ex = meshx[ix];
       const typename Trait::EltY& ey = meshy[iy];
-      x0 = ex[0];
-      y0 = ey[0];
+      x0_y0 = ex[0] - ey[0];
       dx = MatJac(ex);
       dy = MatJac(ey);
       h = DetJac(ex) * DetJac(ey);
@@ -165,31 +163,21 @@ namespace bemtool
     const typename Trait::MatType& operator()(const typename Trait::Rdx& tx,
                                               const typename Trait::Rdy& ty)
     {
-      x = x0 + dx * tx;
-      y = y0 + dy * ty;
+      x_y = x0_y0 + dx * tx - dy * ty;
+      r = norm2(x_y);
+      x = x0_y0 + dx * tx;
+      y = dy * ty;
+      det = detail_rh_fast::det2_xy(x, y);
+      phase = std::exp(-iu * alpha * det);
 
-      const Real rx = x[0] - y[0];
-      const Real ry = x[1] - y[1];
-      const Real R  = std::hypot(rx, ry);
+      // Native singular part multiplied by the smooth phase.
+      dotny = (ny, x_y);
+      ker = -h * dotny * (1.0 / r) * static_cast<Real>(0.25) * iu * khat * Hankel1(khat * r) * phase;
 
-      constexpr Real epsR = 1e-14;
-      Real dRdn_y = 0.0;
-      if (R > epsR)
-        dRdn_y = -(rx * ny[0] + ry * ny[1]) / R;
-
-      const Real z = khat * R;
-      const Cplx Gst = prefactor * Hankel(0, z);
-      const Cplx dGst_dn_y = prefactor * (khat * DHankel_Dx(0, z)) * dRdn_y;
-
-      const Real det = detail_rh_fast::det2_xy(x, y);
-      const Cplx phase = std::exp(-iu * alpha * det);
-
-      // d/dn_y det = (x_y, -x_x) · n_y
+      // Smooth correction from differentiating the phase in the source normal.
+      Gst = (iu / static_cast<Real>(4)) * Hankel(0, khat * r);
       const Real ddet_dn_y = x[1] * ny[0] - x[0] * ny[1];
-
-      const Cplx dGhat_dn_y = phase * (dGst_dn_y - (iu * alpha * ddet_dn_y) * Gst);
-
-      ker = -h * dGhat_dn_y;
+      ker += h * phase * (iu * alpha * ddet_dn_y) * Gst;
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
         for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -217,7 +205,8 @@ namespace bemtool
 
   // ============================================================
   // TDL operator with reversed kernel \hat G
-  // kernel convention: + \partial_{n_x} \hat G
+  // Mirrors native Helmholtz TDL structure and adds the smooth
+  // rotating correction through the phase factor.
   // ============================================================
   template <typename PhiX, typename PhiY>
   class BIOpKernel<RH, TDL_OP, 2, PhiX, PhiY>
@@ -236,11 +225,10 @@ namespace bemtool
     PhiY phiy;
 
     const Real k0, eps, mu, Omega, khat, alpha;
-    const Cplx prefactor;
 
-    R3 x0, y0, x, y, nx;
-    Real h{};
-    Cplx ker;
+    R3 x0_y0, x_y, x, y, nx;
+    Real h{}, r{}, dotnx{}, det{};
+    Cplx ker, phase, Gst;
 
   public:
     BIOpKernel(const typename Trait::MeshX& mx,
@@ -253,16 +241,14 @@ namespace bemtool
         phix(mx), phiy(my),
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_),
         khat(k0_ * std::sqrt(eps_ * mu_)),
-        alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.),
-        prefactor(iu / static_cast<Real>(4))
+        alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
     {}
 
     void Assign(const int& ix, const int& iy)
     {
       const typename Trait::EltX& ex = meshx[ix];
       const typename Trait::EltY& ey = meshy[iy];
-      x0 = ex[0];
-      y0 = ey[0];
+      x0_y0 = ex[0] - ey[0];
       dx = MatJac(ex);
       dy = MatJac(ey);
       h = DetJac(ex) * DetJac(ey);
@@ -272,31 +258,21 @@ namespace bemtool
     const typename Trait::MatType& operator()(const typename Trait::Rdx& tx,
                                               const typename Trait::Rdy& ty)
     {
-      x = x0 + dx * tx;
-      y = y0 + dy * ty;
+      x_y = x0_y0 + dx * tx - dy * ty;
+      r = norm2(x_y);
+      x = x0_y0 + dx * tx;
+      y = dy * ty;
+      det = detail_rh_fast::det2_xy(x, y);
+      phase = std::exp(-iu * alpha * det);
 
-      const Real rx = x[0] - y[0];
-      const Real ry = x[1] - y[1];
-      const Real R  = std::hypot(rx, ry);
+      // Native singular part multiplied by the smooth phase.
+      dotnx = (nx, x_y);
+      ker = -h * dotnx * (1.0 / r) * static_cast<Real>(0.25) * iu * khat * Hankel1(khat * r) * phase;
 
-      constexpr Real epsR = 1e-14;
-      Real dRdn_x = 0.0;
-      if (R > epsR)
-        dRdn_x = (rx * nx[0] + ry * nx[1]) / R;
-
-      const Real z = khat * R;
-      const Cplx Gst = prefactor * Hankel(0, z);
-      const Cplx dGst_dn_x = prefactor * (khat * DHankel_Dx(0, z)) * dRdn_x;
-
-      const Real det = detail_rh_fast::det2_xy(x, y);
-      const Cplx phase = std::exp(-iu * alpha * det);
-
-      // grad_x det = (-y_y, y_x)
-      const Real ddet_dn_x = (-y[1]) * nx[0] + y[0] * nx[1];
-
-      const Cplx dGhat_dn_x = phase * (dGst_dn_x - (iu * alpha * ddet_dn_x) * Gst);
-
-      ker = h * dGhat_dn_x;
+      // Smooth correction from differentiating the phase in the target normal.
+      Gst = (iu / static_cast<Real>(4)) * Hankel(0, khat * r);
+      const Real ddet_dn_x = -y[1] * nx[0] + y[0] * nx[1];
+      ker += -h * phase * (iu * alpha * ddet_dn_x) * Gst;
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
         for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -323,7 +299,8 @@ namespace bemtool
   using RH_TDL_2D_P1xP0 = BIOpKernel<RH, TDL_OP, 2, P1_1D, P0_1D>;
 
   // ============================================================
-  // HS operator in 2D, mirroring Helmholtz structure but with \hat G
+  // HS operator in 2D, mirroring the native Helmholtz structure.
+  // The rotating correction enters only through the smooth phase.
   // ============================================================
   template <typename PhiX, typename PhiY>
   class BIOpKernel<RH, HS_OP, 2, PhiX, PhiY>
@@ -345,11 +322,10 @@ namespace bemtool
     const std::vector<R3>& normaly;
 
     const Real k0, eps, mu, Omega, khat, khat2, alpha;
-    const Cplx prefactor;
 
     R3 x0_y0, x_y, x, y, nx, ny;
-    Real h{}, r{};
-    Cplx ker, val, val2;
+    Real h{}, r{}, det{};
+    Cplx ker, val, val2, phase;
 
   public:
     BIOpKernel(const typename Trait::MeshX& mx,
@@ -365,8 +341,7 @@ namespace bemtool
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_),
         khat(k0_ * std::sqrt(eps_ * mu_)),
         khat2(khat * khat),
-        alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.),
-        prefactor(iu / static_cast<Real>(4))
+        alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
     {}
 
     void Assign(const int& ix, const int& iy)
@@ -381,22 +356,18 @@ namespace bemtool
       dy = MatJac(ey);
       nx = normalx[ix];
       ny = normaly[iy];
-      x0_y0[2] = 0.0;
     }
 
     const typename Trait::MatType& operator()(const typename Trait::Rdx& tx,
                                               const typename Trait::Rdy& ty)
     {
-      x = dx * tx;
-      y = dy * ty;
-      x_y = x0_y0 + x - y;
+      x_y = x0_y0 + dx * tx - dy * ty;
       r = norm2(x_y);
-
-      const Cplx Gst = prefactor * Hankel(0, khat * r);
-      // use reversed kernel \hat G
-      const Real det = detail_rh_fast::det2_xy(x0_y0 + x, y);
-      const Cplx phase = std::exp(-iu * alpha * det);
-      ker = h * Gst * phase;
+      x = x0_y0 + dx * tx;
+      y = dy * ty;
+      det = detail_rh_fast::det2_xy(x, y);
+      phase = std::exp(-iu * alpha * det);
+      ker = h * static_cast<Real>(0.25) * iu * Hankel0(khat * r) * phase;
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
       {
@@ -413,15 +384,13 @@ namespace bemtool
                            const typename Trait::Rdy& ty,
                            const int& kx, const int& ky)
     {
-      x = dx * tx;
-      y = dy * ty;
-      x_y = x0_y0 + x - y;
+      x_y = x0_y0 + dx * tx - dy * ty;
       r = norm2(x_y);
-
-      const Cplx Gst = prefactor * Hankel(0, khat * r);
-      const Real det = detail_rh_fast::det2_xy(x0_y0 + x, y);
-      const Cplx phase = std::exp(-iu * alpha * det);
-      ker = h * Gst * phase;
+      x = x0_y0 + dx * tx;
+      y = dy * ty;
+      det = detail_rh_fast::det2_xy(x, y);
+      phase = std::exp(-iu * alpha * det);
+      ker = h * static_cast<Real>(0.25) * iu * Hankel0(khat * r) * phase;
 
       val = (vprod(nx, grad_phix(kx, tx)), vprod(ny, grad_phiy(ky, ty))) * ker;
       val2 = val - khat2 * (nx, ny) * phix(kx, tx) * phiy(ky, ty) * ker;
