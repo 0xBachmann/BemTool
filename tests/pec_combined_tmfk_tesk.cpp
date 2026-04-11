@@ -241,6 +241,9 @@ int main(int argc, char* argv[])
         std::cout << "Boundary check at r = 1 + delta, delta = " << delta << "\n";
         std::cout << "max |u_tot| = " << max_abs_utot << "\n";
         std::cout << "rms |u_tot| = " << rms_abs_utot << "\n";
+        Eigen::VectorXcd bc_res = A * dens - rhs;
+        std::cout << "relative boundary residual = "
+                  << bc_res.norm() / rhs.norm() << "\n";
         fout_bc.close();
     }
 
@@ -254,7 +257,6 @@ int main(int argc, char* argv[])
         // => V phi = gamma_D u_inc.
         BIOp<RH_DL_2D_P1xP1> K(mesh, mesh, k0, eps, mu, Omega);
 
-        // BIOp<RH_DL_2D_P1xP1> K(mesh, mesh, k0, eps, mu, Omega);
         const auto Kmat = assemble_biop_matrix(mesh, dof, K, "Assembling K");
         A = 0.5 * M + Kmat;
 
@@ -298,6 +300,9 @@ int main(int argc, char* argv[])
         std::cout << "Boundary check at r = 1 + delta, delta = " << delta << "\n";
         std::cout << "max |u_tot| = " << max_abs_utot << "\n";
         std::cout << "rms |u_tot| = " << rms_abs_utot << "\n";
+        Eigen::VectorXcd bc_res = A * dens - rhs;
+        std::cout << "relative boundary residual = "
+                  << bc_res.norm() / rhs.norm() << "\n";
         fout_bc.close();
     }
 
@@ -368,6 +373,9 @@ int main(int argc, char* argv[])
         std::cout << "Neumann check by one-sided radial finite difference, delta = " << delta << "\n";
         std::cout << "max |dn u_tot| ~= " << max_abs_dnu << "\n";
         std::cout << "rms |dn u_tot| ~= " << rms_abs_dnu << "\n";
+        Eigen::VectorXcd bc_res = A * dens - rhs;
+        std::cout << "relative boundary residual = "
+                  << bc_res.norm() / rhs.norm() << "\n";
         fout_bc.close();
     }
 
@@ -438,6 +446,9 @@ int main(int argc, char* argv[])
         std::cout << "Neumann check by one-sided radial finite difference, delta = " << delta << "\n";
         std::cout << "max |dn u_tot| ~= " << max_abs_dnu << "\n";
         std::cout << "rms |dn u_tot| ~= " << rms_abs_dnu << "\n";
+        Eigen::VectorXcd bc_res = A * dens - rhs;
+        std::cout << "relative boundary residual = "
+                  << bc_res.norm() / rhs.norm() << "\n";
 
         fout_bc.close();
     }

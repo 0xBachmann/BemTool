@@ -31,7 +31,9 @@ add_executable(scatter_TE_PEC_two_trace scatter_TE_PEC_two_trace.cpp)
 
 add_executable(rotating_dielectric_scatter tests/rotating_dielectric_scatter_2D.cpp)
 add_executable(rotating_dielectric_scatter_fast tests/rotating_dielectric_scatter_2D_fast.cpp)
-add_executable(pec_test tests/pec_cylinder_test.cpp)
+#add_executable(pec_cylinder_te_sl tests/pec_cylinder_te_single_layer.cpp)
+#add_executable(pec_cylinder_tm_dl tests/pec_cylinder_tm_double_layer.cpp)
+add_executable(pec_cylinder tests/pec_combined_tmfk_tesk.cpp)
 
 
 

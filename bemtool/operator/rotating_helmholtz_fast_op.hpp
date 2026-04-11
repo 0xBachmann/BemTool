@@ -53,7 +53,8 @@ namespace bemtool
         khat(k0_ * std::sqrt(eps_ * mu_)),
         alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.),
         prefactor(iu / static_cast<Real>(4))
-    {}
+    {
+    }
 
     void Assign(const int& ix, const int& iy)
     {
@@ -110,8 +111,9 @@ namespace bemtool
 
   // ============================================================
   // DL operator with reversed kernel \hat G
-  // Mirrors native Helmholtz DL structure and adds the smooth
-  // rotating correction through the phase factor.
+  // Thesis convention: K is built from +∂_{n_y} \hat G.
+  // The native singular structure is preserved; the rotating
+  // phase contributes an additional smooth source-normal term.
   // ============================================================
   template <typename PhiX, typename PhiY>
   class BIOpKernel<RH, DL_OP, 2, PhiX, PhiY>
@@ -131,7 +133,7 @@ namespace bemtool
 
     const Real k0, eps, mu, Omega, khat, alpha;
 
-    R3 x0_y0, x_y, x, y, ny;
+    R3 x0, y0, x_y, x, y, ny;
     Real h{}, r{}, dotny{}, det{};
     Cplx ker, phase, Gst;
 
@@ -147,13 +149,15 @@ namespace bemtool
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_),
         khat(k0_ * std::sqrt(eps_ * mu_)),
         alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
-    {}
+    {
+    }
 
     void Assign(const int& ix, const int& iy)
     {
       const typename Trait::EltX& ex = meshx[ix];
       const typename Trait::EltY& ey = meshy[iy];
-      x0_y0 = ex[0] - ey[0];
+      x0 = ex[0];
+      y0 = ey[0];
       dx = MatJac(ex);
       dy = MatJac(ey);
       h = DetJac(ex) * DetJac(ey);
@@ -163,21 +167,23 @@ namespace bemtool
     const typename Trait::MatType& operator()(const typename Trait::Rdx& tx,
                                               const typename Trait::Rdy& ty)
     {
-      x_y = x0_y0 + dx * tx - dy * ty;
+      x = x0 + dx * tx;
+      y = y0 + dy * ty;
+      x_y = x - y;
       r = norm2(x_y);
-      x = x0_y0 + dx * tx;
-      y = dy * ty;
+
       det = detail_rh_fast::det2_xy(x, y);
       phase = std::exp(-iu * alpha * det);
-
-      // Native singular part multiplied by the smooth phase.
       dotny = (ny, x_y);
-      ker = -h * dotny * (1.0 / r) * static_cast<Real>(0.25) * iu * khat * Hankel1(khat * r) * phase;
 
-      // Smooth correction from differentiating the phase in the source normal.
-      Gst = (iu / static_cast<Real>(4)) * Hankel(0, khat * r);
-      const Real ddet_dn_y = x[1] * ny[0] - x[0] * ny[1];
-      ker += h * phase * (iu * alpha * ddet_dn_y) * Gst;
+      // Since \hat G = G_st exp(-i alpha det), we get
+      // ∂_{n_y} \hat G = phase * ( ∂_{n_y} G_st - i alpha (∂_{n_y} det) G_st ).
+      // Gst = (iu / static_cast<Real>(4)) * Hankel0(khat * r);
+      const auto dr_dn_y = -dotny / r;
+      const Real ddet_dn_y = - x[1] * ny[0] + x[0] * ny[1];
+
+      ker = h * phase * ((iu / static_cast<Real>(4)) * (DHankel0_Dx(khat * r) * khat * dr_dn_y
+        + (-iu * alpha * ddet_dn_y) * Hankel0(khat * r)));
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
         for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -205,8 +211,9 @@ namespace bemtool
 
   // ============================================================
   // TDL operator with reversed kernel \hat G
-  // Mirrors native Helmholtz TDL structure and adds the smooth
-  // rotating correction through the phase factor.
+  // Thesis convention: K' is built from +∂_{n_x} \hat G.
+  // The native singular structure is preserved; the rotating
+  // phase contributes an additional smooth target-normal term.
   // ============================================================
   template <typename PhiX, typename PhiY>
   class BIOpKernel<RH, TDL_OP, 2, PhiX, PhiY>
@@ -242,7 +249,8 @@ namespace bemtool
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_),
         khat(k0_ * std::sqrt(eps_ * mu_)),
         alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
-    {}
+    {
+    }
 
     void Assign(const int& ix, const int& iy)
     {
@@ -342,7 +350,8 @@ namespace bemtool
         khat(k0_ * std::sqrt(eps_ * mu_)),
         khat2(khat * khat),
         alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
-    {}
+    {
+    }
 
     void Assign(const int& ix, const int& iy)
     {
@@ -400,7 +409,6 @@ namespace bemtool
 
   using RH_HS_2D_P1xP1 = BIOpKernel<RH, HS_OP, 2, P1_1D, P1_1D>;
   using RH_HS_2D_P2xP2 = BIOpKernel<RH, HS_OP, 2, P2_1D, P2_1D>;
-
 } // namespace bemtool
 
 #endif

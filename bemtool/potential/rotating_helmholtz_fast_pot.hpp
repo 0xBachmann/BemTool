@@ -153,8 +153,8 @@ namespace bemtool
       const Real ddet_dn_y = x[1] * ny[0] - x[0] * ny[1];
       const Cplx dGhat_dn_y = phase * (dGst_dn_y - iu * alpha * ddet_dn_y * Gst);
 
-      // BemTool DL potential convention
-      ker = -h * dGhat_dn_y;
+      // Thesis convention: Ψ_DL uses +∂_{n_y} \hat G in the source variable.
+      ker = h * dGhat_dn_y;
 
       for (int k = 0; k < Trait::nb_dof_y; ++k)
         mat(0, k) = ker * phiy(k, tj);
