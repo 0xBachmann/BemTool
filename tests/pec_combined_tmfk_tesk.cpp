@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <string>
+#include <algorithm>
 
 #include "../bemtool/tools.hpp"
 
@@ -12,13 +13,31 @@ using namespace bemtool;
 
 namespace
 {
+    struct SolveResult
+    {
+        std::string name;
+        Eigen::VectorXcd density;
+        Eigen::MatrixXcd A;
+        Eigen::VectorXcd rhs;
+        bool uses_sl_potential = true;
+        Real relative_bie_residual = 0.0;
+        bool available = false;
+    };
+
+    struct FieldSample
+    {
+        Real theta = 0.0;
+        R3 x;
+        Cplx uinc = 0.0;
+        Cplx usca = 0.0;
+        Cplx utot = 0.0;
+    };
+
     Cplx incident_plane_wave(const R3& x, Real kx, Real ky)
     {
         return std::exp(iu * (kx * x[0] + ky * x[1]));
     }
 
-    // Problem-specific only: assemble rhs_i = \int_\Gamma g \phi_i ds,
-    // where g is either the incident Dirichlet trace or the incident Neumann trace.
     void assemble_rhs_dirichlet_p1(const Mesh1D& mesh, const Dof<P1_1D>& dof,
                                    Real kx, Real ky, Eigen::VectorXcd& rhs)
     {
@@ -91,8 +110,8 @@ namespace
         }
     }
 
-    template <typename op>
-    Cplx eval_layer_field(Potential<op>& sl_pot,
+    template <typename Op>
+    Cplx eval_layer_field(Potential<Op>& pot,
                           const Mesh1D& mesh,
                           const Dof<P1_1D>& dof,
                           const Eigen::VectorXcd& dens,
@@ -103,14 +122,16 @@ namespace
         for (int e = 0; e < nb_elt; ++e)
         {
             const N2& edof = dof[e];
-            u += sl_pot(x, N2_(e, 0)) * dens(edof[0]);
-            u += sl_pot(x, N2_(e, 1)) * dens(edof[1]);
+            u += pot(x, N2_(e, 0)) * dens(edof[0]);
+            u += pot(x, N2_(e, 1)) * dens(edof[1]);
         }
         return u;
     }
 
     template <class OperatorType>
-    Eigen::MatrixXcd assemble_biop_matrix(const Mesh1D& mesh, const Dof<P1_1D>& dof, OperatorType& op,
+    Eigen::MatrixXcd assemble_biop_matrix(const Mesh1D& mesh,
+                                          const Dof<P1_1D>& dof,
+                                          OperatorType& op,
                                           const std::string& label)
     {
         const int nb_dof = NbDof(dof);
@@ -128,11 +149,126 @@ namespace
         bar.end();
         return A;
     }
+
+    std::vector<FieldSample> sample_total_field_on_circle(const Mesh1D& mesh,
+                                                          const Dof<P1_1D>& dof,
+                                                          Potential<HE_SL_2D_P1>& sl_pot,
+                                                          Potential<HE_DL_2D_P1>& dl_pot,
+                                                          const SolveResult& result,
+                                                          Real radius,
+                                                          int n_samples,
+                                                          Real kx,
+                                                          Real ky)
+    {
+        std::vector<FieldSample> samples;
+        samples.reserve(n_samples);
+
+        for (int m = 0; m < n_samples; ++m)
+        {
+            const Real theta = 2.0 * M_PI * static_cast<Real>(m) / static_cast<Real>(n_samples);
+            R3 x;
+            x[0] = radius * std::cos(theta);
+            x[1] = radius * std::sin(theta);
+            x[2] = 0.0;
+
+            FieldSample s;
+            s.theta = theta;
+            s.x = x;
+            s.uinc = incident_plane_wave(x, kx, ky);
+
+            if (result.uses_sl_potential)
+            {
+                s.usca = -eval_layer_field(sl_pot, mesh, dof, result.density, x);
+            }
+            else
+            {
+                s.usca = eval_layer_field(dl_pot, mesh, dof, result.density, x);
+            }
+
+            s.utot = s.uinc + s.usca;
+            samples.push_back(s);
+        }
+
+        return samples;
+    }
+
+    void write_field_samples_csv(const std::string& filename,
+                                 const std::vector<FieldSample>& samples)
+    {
+        std::ofstream fout(filename);
+        fout << "theta,x,y,real_uinc,imag_uinc,real_usca,imag_usca,real_utot,imag_utot,abs_utot\n";
+        for (const auto& s : samples)
+        {
+            fout << s.theta << ',' << s.x[0] << ',' << s.x[1] << ','
+                 << std::real(s.uinc) << ',' << std::imag(s.uinc) << ','
+                 << std::real(s.usca) << ',' << std::imag(s.usca) << ','
+                 << std::real(s.utot) << ',' << std::imag(s.utot) << ','
+                 << std::abs(s.utot) << '\n';
+        }
+    }
+
+    void print_total_field_stats(const std::string& label,
+                                 const std::vector<FieldSample>& samples,
+                                 Real radius)
+    {
+        Real max_abs_utot = 0.0;
+        Real sum_sq_abs_utot = 0.0;
+
+        for (const auto& s : samples)
+        {
+            const Real a = std::abs(s.utot);
+            max_abs_utot = std::max(max_abs_utot, a);
+            sum_sq_abs_utot += a * a;
+        }
+
+        const Real rms_abs_utot = std::sqrt(sum_sq_abs_utot / static_cast<Real>(samples.size()));
+        std::cout << label << " on observation circle r = " << radius << "\n";
+        std::cout << "max |u_tot| = " << max_abs_utot << "\n";
+        std::cout << "rms |u_tot| = " << rms_abs_utot << "\n";
+    }
+
+    void compare_scattered_fields(const std::string& label,
+                                  const std::vector<FieldSample>& a,
+                                  const std::vector<FieldSample>& b,
+                                  const std::string& filename)
+    {
+        std::ofstream fout(filename);
+        fout << "theta,real_usca_a,imag_usca_a,real_usca_b,imag_usca_b,abs_diff\n";
+
+        Real max_abs_diff = 0.0;
+        Real sum_sq_abs_diff = 0.0;
+        Real sum_sq_abs_a = 0.0;
+
+        const int n = static_cast<int>(std::min(a.size(), b.size()));
+        for (int i = 0; i < n; ++i)
+        {
+            const Cplx diff = a[i].usca - b[i].usca;
+            const Real ad = std::abs(diff);
+            const Real aa = std::abs(a[i].usca);
+
+            max_abs_diff = std::max(max_abs_diff, ad);
+            sum_sq_abs_diff += ad * ad;
+            sum_sq_abs_a += aa * aa;
+
+            fout << a[i].theta << ','
+                 << std::real(a[i].usca) << ',' << std::imag(a[i].usca) << ','
+                 << std::real(b[i].usca) << ',' << std::imag(b[i].usca) << ','
+                 << ad << '\n';
+        }
+
+        const Real rms_abs_diff = std::sqrt(sum_sq_abs_diff / static_cast<Real>(n));
+        const Real rel_rms_diff = std::sqrt(sum_sq_abs_diff / std::max(sum_sq_abs_a, Real(1.0e-30)));
+
+        std::cout << label << "\n";
+        std::cout << "max |u_sca^A - u_sca^B| = " << max_abs_diff << "\n";
+        std::cout << "rms |u_sca^A - u_sca^B| = " << rms_abs_diff << "\n";
+        std::cout << "relative rms difference = " << rel_rms_diff << "\n";
+    }
 } // namespace
 
 int main(int argc, char* argv[])
 {
-    constexpr bool do_tm_fk = false;
+    constexpr bool do_tm_fk = true;
     constexpr bool do_tm_sk = true;
     constexpr bool do_te_fk = false;
     constexpr bool do_te_sk = false;
@@ -143,6 +279,9 @@ int main(int argc, char* argv[])
     constexpr Real Omega = 0.0; // stationary PEC benchmark
 
     constexpr Real theta_inc = 0.0;
+    constexpr Real r_obs = 2.0;
+    constexpr int n_obs = 720;
+
     const Real kx = k0 * std::cos(theta_inc);
     const Real ky = k0 * std::sin(theta_inc);
 
@@ -156,301 +295,150 @@ int main(int argc, char* argv[])
     const int nb_elt = NbElt(mesh);
 
     std::cout << "solving ";
-    if (do_te_fk)
-    {
-        std::cout << "te_fk, ";
-    }
-    if (do_te_sk)
-    {
-        std::cout << "te_sk, ";
-    }
-    if (do_tm_fk)
-    {
-        std::cout << "tm_fk, ";
-    }
-    if (do_tm_sk)
-    {
-        std::cout << "tm_sk, ";
-    }
+    if (do_te_fk) std::cout << "te_fk, ";
+    if (do_te_sk) std::cout << "te_sk, ";
+    if (do_tm_fk) std::cout << "tm_fk, ";
+    if (do_tm_sk) std::cout << "tm_sk, ";
     std::cout << "\n";
 
     std::cout << "nb_elt = " << nb_elt << "\n";
     std::cout << "nb_dof = " << nb_dof << "\n";
 
-    // Identity term in weak form via the built-in constant operator.
     BIOp<CST_1D_P1xP1> M_op(mesh, mesh);
     const Eigen::MatrixXcd M = assemble_biop_matrix(mesh, dof, M_op, "Assembling M");
 
-    Eigen::MatrixXcd A = Eigen::MatrixXcd::Zero(nb_dof, nb_dof);
-    Eigen::VectorXcd rhs = Eigen::VectorXcd::Zero(nb_dof);
-    Eigen::VectorXcd dens(nb_dof);
+    Potential<HE_SL_2D_P1> sl_pot(mesh, k0/*, eps, mu, Omega*/);
+    Potential<HE_DL_2D_P1> dl_pot(mesh, k0/*, eps, mu, Omega*/);
 
-    Potential<RH_SL_2D_P1> sl_pot(mesh, k0, eps, mu, Omega);
-    Potential<RH_DL_2D_P1> dl_pot(mesh, k0, eps, mu, Omega);
-
-    constexpr Real delta = 1.0e-3;
-    constexpr int n_bc = 400;
+    SolveResult tm_fk, tm_sk, te_sk, te_fk;
 
     if (do_tm_fk)
     {
-        // TM-side PEC prototype = Dirichlet problem.
-        //
-        // First-kind formulation:
-        //   u_sca = - SL(phi),
-        //   gamma_D (u_inc + u_sca) = 0
-        // => V phi = gamma_D u_inc.
-        BIOp<RH_SL_2D_P1xP1> V(mesh, mesh, k0, eps, mu, Omega);
-        A = assemble_biop_matrix(mesh, dof, V, "Assembling V");
+        tm_fk.name = "tm_fk";
+        tm_fk.uses_sl_potential = true;
+        tm_fk.available = true;
 
-        assemble_rhs_dirichlet_p1(mesh, dof, kx, ky, rhs);
-        dens = A.fullPivLu().solve(rhs);
+        BIOp<HE_SL_2D_P1xP1> V(mesh, mesh, k0/*, eps, mu, Omega*/);
+        tm_fk.A = assemble_biop_matrix(mesh, dof, V, "Assembling V");
 
-        const std::string bc_name = "pec_tm_fk_boundary_check.csv";
-        std::ofstream fout_bc(bc_name);
-        // Check Dirichlet condition near the boundary:
-        //   u_tot ~ 0 on Gamma.
-        fout_bc << "theta,x,y,real_utot,imag_utot,abs_utot\n";
+        tm_fk.rhs = Eigen::VectorXcd::Zero(nb_dof);
+        assemble_rhs_dirichlet_p1(mesh, dof, kx, ky, tm_fk.rhs);
 
-        const Real r_bc = 1.0 + delta;
-        Real max_abs_utot = 0.0;
-        Real sum_sq_abs_utot = 0.0;
+        tm_fk.density = tm_fk.A.fullPivLu().solve(tm_fk.rhs);
+        const Eigen::VectorXcd res = tm_fk.A * tm_fk.density - tm_fk.rhs;
+        tm_fk.relative_bie_residual = res.norm() / std::max(tm_fk.rhs.norm(), Real(1.0e-30));
 
-        for (int m = 0; m < n_bc; ++m)
-        {
-            const Real theta = 2.0 * M_PI * static_cast<Real>(m) / static_cast<Real>(n_bc);
-            R3 x;
-            x[0] = r_bc * std::cos(theta);
-            x[1] = r_bc * std::sin(theta);
-            x[2] = 0.0;
-
-            const Cplx uinc = incident_plane_wave(x, kx, ky);
-            const Cplx usca = -eval_layer_field(sl_pot, mesh, dof, dens, x);
-            const Cplx utot = uinc + usca;
-            const Real abs_utot = std::abs(utot);
-
-            max_abs_utot = std::max(max_abs_utot, abs_utot);
-            sum_sq_abs_utot += abs_utot * abs_utot;
-
-            fout_bc << theta << ',' << x[0] << ',' << x[1] << ','
-                << std::real(utot) << ',' << std::imag(utot) << ','
-                << abs_utot << '\n';
-        }
-
-        const Real rms_abs_utot = std::sqrt(sum_sq_abs_utot / static_cast<Real>(n_bc));
-        std::cout << "Wrote boundary check to " << bc_name << "\n";
-        std::cout << "Boundary check at r = 1 + delta, delta = " << delta << "\n";
-        std::cout << "max |u_tot| = " << max_abs_utot << "\n";
-        std::cout << "rms |u_tot| = " << rms_abs_utot << "\n";
-        Eigen::VectorXcd bc_res = A * dens - rhs;
-        std::cout << "relative boundary residual = "
-                  << bc_res.norm() / rhs.norm() << "\n";
-        fout_bc.close();
+        std::cout << "relative BIE residual (tm_fk) = " << tm_fk.relative_bie_residual << "\n";
     }
 
     if (do_tm_sk)
     {
-        // TM-side PEC prototype = Dirichlet problem.
-        //
-        // First-kind formulation:
-        //   u_sca = - SL(phi),
-        //   gamma_D (u_inc + u_sca) = 0
-        // => V phi = gamma_D u_inc.
-        BIOp<RH_DL_2D_P1xP1> K(mesh, mesh, k0, eps, mu, Omega);
+        tm_sk.name = "tm_sk";
+        tm_sk.uses_sl_potential = false;
+        tm_sk.available = true;
 
-        const auto Kmat = assemble_biop_matrix(mesh, dof, K, "Assembling K");
-        A = 0.5 * M + Kmat;
+        BIOp<HE_DL_2D_P1xP1> K(mesh, mesh, k0/*, eps, mu, Omega*/);
+        const Eigen::MatrixXcd Kmat = assemble_biop_matrix(mesh, dof, K, "Assembling K");
+        tm_sk.A = 0.5 * M - Kmat;
 
-        assemble_rhs_dirichlet_p1(mesh, dof, kx, ky, rhs);
-        rhs = -rhs;
+        tm_sk.rhs = Eigen::VectorXcd::Zero(nb_dof);
+        assemble_rhs_dirichlet_p1(mesh, dof, kx, ky, tm_sk.rhs);
+        tm_sk.rhs = -tm_sk.rhs;
 
-        dens = A.fullPivLu().solve(rhs);
-        const std::string bc_name = "pec_tm_sk_boundary_check.csv";
-        std::ofstream fout_bc(bc_name);
-        // Check Dirichlet condition near the boundary:
-        //   u_tot ~ 0 on Gamma.
-        fout_bc << "theta,x,y,real_utot,imag_utot,abs_utot\n";
+        tm_sk.density = tm_sk.A.fullPivLu().solve(tm_sk.rhs);
+        const Eigen::VectorXcd res = tm_sk.A * tm_sk.density - tm_sk.rhs;
+        tm_sk.relative_bie_residual = res.norm() / std::max(tm_sk.rhs.norm(), Real(1.0e-30));
 
-        const Real r_bc = 1.0 + delta;
-        Real max_abs_utot = 0.0;
-        Real sum_sq_abs_utot = 0.0;
-
-        for (int m = 0; m < n_bc; ++m)
-        {
-            const Real theta = 2.0 * M_PI * static_cast<Real>(m) / static_cast<Real>(n_bc);
-            R3 x;
-            x[0] = r_bc * std::cos(theta);
-            x[1] = r_bc * std::sin(theta);
-            x[2] = 0.0;
-
-            const Cplx uinc = incident_plane_wave(x, kx, ky);
-            const Cplx usca = eval_layer_field(dl_pot, mesh, dof, dens, x);
-            const Cplx utot = uinc + usca;
-            const Real abs_utot = std::abs(utot);
-
-            max_abs_utot = std::max(max_abs_utot, abs_utot);
-            sum_sq_abs_utot += abs_utot * abs_utot;
-
-            fout_bc << theta << ',' << x[0] << ',' << x[1] << ','
-                << std::real(utot) << ',' << std::imag(utot) << ','
-                << abs_utot << '\n';
-        }
-
-        const Real rms_abs_utot = std::sqrt(sum_sq_abs_utot / static_cast<Real>(n_bc));
-        std::cout << "Wrote boundary check to " << bc_name << "\n";
-        std::cout << "Boundary check at r = 1 + delta, delta = " << delta << "\n";
-        std::cout << "max |u_tot| = " << max_abs_utot << "\n";
-        std::cout << "rms |u_tot| = " << rms_abs_utot << "\n";
-        Eigen::VectorXcd bc_res = A * dens - rhs;
-        std::cout << "relative boundary residual = "
-                  << bc_res.norm() / rhs.norm() << "\n";
-        fout_bc.close();
+        std::cout << "relative BIE residual (tm_sk) = " << tm_sk.relative_bie_residual << "\n";
     }
 
     if (do_te_sk)
     {
-        // TE-side PEC prototype = Neumann problem.
-        //
-        // Second-kind formulation:
-        //   (-1/2 I + K') phi = - gamma_N u_inc
-        // with u_sca = - SL(phi).
-        //
-        // This version uses the native RH adjoint-double-layer operator TDL_OP.
-        BIOp<RH_TDL_2D_P1xP1> Kp(mesh, mesh, k0, eps, mu, Omega);
+        te_sk.name = "te_sk";
+        te_sk.uses_sl_potential = true;
+        te_sk.available = true;
+
+        BIOp<HE_TDL_2D_P1xP1> Kp(mesh, mesh, k0/*, eps, mu, Omega*/);
         const Eigen::MatrixXcd Kpmat = assemble_biop_matrix(mesh, dof, Kp, "Assembling Kp");
+        te_sk.A = -0.5 * M + Kpmat;
 
-        A = -0.5 * M + Kpmat;
-        assemble_rhs_neumann_p1(mesh, dof, kx, ky, rhs);
-        // rhs = -rhs;
+        te_sk.rhs = Eigen::VectorXcd::Zero(nb_dof);
+        assemble_rhs_neumann_p1(mesh, dof, kx, ky, te_sk.rhs);
 
-        dens = A.fullPivLu().solve(rhs);
-        const std::string bc_name = "pec_te_sk_boundary_check.csv";
-        std::ofstream fout_bc(bc_name);
-        // Check Neumann condition near the boundary:
-        //   partial_n u_tot ~ 0 on Gamma.
-        //
-        // Since the current test driver evaluates only the field potential,
-        // we estimate the exterior normal derivative by a one-sided radial
-        // finite difference.
-        fout_bc << "theta,real_dnutot,imag_dnutot,abs_dnutot\n";
+        te_sk.density = te_sk.A.fullPivLu().solve(te_sk.rhs);
+        const Eigen::VectorXcd res = te_sk.A * te_sk.density - te_sk.rhs;
+        te_sk.relative_bie_residual = res.norm() / std::max(te_sk.rhs.norm(), Real(1.0e-30));
 
-        Real max_abs_dnu = 0.0;
-        Real sum_sq_abs_dnu = 0.0;
-
-        for (int m = 0; m < n_bc; ++m)
-        {
-            const Real theta = 2.0 * M_PI * static_cast<Real>(m) / static_cast<Real>(n_bc);
-
-            R3 x1, x2;
-            x1[0] = (1.0 + delta) * std::cos(theta);
-            x1[1] = (1.0 + delta) * std::sin(theta);
-            x1[2] = 0.0;
-
-            x2[0] = (1.0 + 2.0 * delta) * std::cos(theta);
-            x2[1] = (1.0 + 2.0 * delta) * std::sin(theta);
-            x2[2] = 0.0;
-
-            const Cplx uinc1 = incident_plane_wave(x1, kx, ky);
-            const Cplx uinc2 = incident_plane_wave(x2, kx, ky);
-            const Cplx usca1 = -eval_layer_field(sl_pot, mesh, dof, dens, x1);
-            const Cplx usca2 = -eval_layer_field(sl_pot, mesh, dof, dens, x2);
-
-            const Cplx utot1 = uinc1 + usca1;
-            const Cplx utot2 = uinc2 + usca2;
-
-            const Cplx dnu_tot = (utot2 - utot1) / delta;
-            const Real abs_dnu_tot = std::abs(dnu_tot);
-
-            max_abs_dnu = std::max(max_abs_dnu, abs_dnu_tot);
-            sum_sq_abs_dnu += abs_dnu_tot * abs_dnu_tot;
-
-            fout_bc << theta << ','
-                << std::real(dnu_tot) << ',' << std::imag(dnu_tot) << ','
-                << abs_dnu_tot << '\n';
-        }
-
-        const Real rms_abs_dnu = std::sqrt(sum_sq_abs_dnu / static_cast<Real>(n_bc));
-        std::cout << "Wrote boundary check to " << bc_name << "\n";
-        std::cout << "Neumann check by one-sided radial finite difference, delta = " << delta << "\n";
-        std::cout << "max |dn u_tot| ~= " << max_abs_dnu << "\n";
-        std::cout << "rms |dn u_tot| ~= " << rms_abs_dnu << "\n";
-        Eigen::VectorXcd bc_res = A * dens - rhs;
-        std::cout << "relative boundary residual = "
-                  << bc_res.norm() / rhs.norm() << "\n";
-        fout_bc.close();
+        std::cout << "relative BIE residual (te_sk) = " << te_sk.relative_bie_residual << "\n";
     }
 
     if (do_te_fk)
     {
-        // TE-side PEC prototype = Neumann problem.
-        //
-        // Second-kind formulation:
-        //   (-1/2 I + K') phi = - gamma_N u_inc
-        // with u_sca = - SL(phi).
-        //
-        // This version uses the native RH adjoint-double-layer operator TDL_OP.
-        BIOp<RH_HS_2D_P1xP1> W(mesh, mesh, k0, eps, mu, Omega);
-        const Eigen::MatrixXcd Wmat = assemble_biop_matrix(mesh, dof, W, "Assembling W");
+        te_fk.name = "te_fk";
+        te_fk.uses_sl_potential = false;
+        te_fk.available = true;
 
-        A = Wmat;
-        assemble_rhs_neumann_p1(mesh, dof, kx, ky, rhs);
-        // rhs = -rhs;
+        BIOp<HE_HS_2D_P1xP1> W(mesh, mesh, k0/*, eps, mu, Omega*/);
+        te_fk.A = assemble_biop_matrix(mesh, dof, W, "Assembling W");
 
-        dens = A.fullPivLu().solve(rhs);
-        const std::string bc_name = "pec_te_fk_boundary_check.csv";
-        std::ofstream fout_bc(bc_name);
-        // Check Neumann condition near the boundary:
-        //   partial_n u_tot ~ 0 on Gamma.
-        //
-        // Since the current test driver evaluates only the field potential,
-        // we estimate the exterior normal derivative by a one-sided radial
-        // finite difference.
-        fout_bc << "theta,real_dnutot,imag_dnutot,abs_dnutot\n";
+        te_fk.rhs = Eigen::VectorXcd::Zero(nb_dof);
+        assemble_rhs_neumann_p1(mesh, dof, kx, ky, te_fk.rhs);
 
-        Real max_abs_dnu = 0.0;
-        Real sum_sq_abs_dnu = 0.0;
+        te_fk.density = te_fk.A.fullPivLu().solve(te_fk.rhs);
+        const Eigen::VectorXcd res = te_fk.A * te_fk.density - te_fk.rhs;
+        te_fk.relative_bie_residual = res.norm() / std::max(te_fk.rhs.norm(), Real(1.0e-30));
 
-        for (int m = 0; m < n_bc; ++m)
-        {
-            const Real theta = 2.0 * M_PI * static_cast<Real>(m) / static_cast<Real>(n_bc);
+        std::cout << "relative BIE residual (te_fk) = " << te_fk.relative_bie_residual << "\n";
+    }
 
-            R3 x1, x2;
-            x1[0] = (1.0 + delta) * std::cos(theta);
-            x1[1] = (1.0 + delta) * std::sin(theta);
-            x1[2] = 0.0;
+    if (tm_fk.available)
+    {
+        const auto samples = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, tm_fk, r_obs, n_obs, kx, ky);
+        write_field_samples_csv("pec_tm_fk_obs_r2.csv", samples);
+        print_total_field_stats("TM first-kind total-field check", samples, r_obs);
+        std::cout << "Wrote observations to pec_tm_fk_obs_r2.csv\n";
+    }
 
-            x2[0] = (1.0 + 2.0 * delta) * std::cos(theta);
-            x2[1] = (1.0 + 2.0 * delta) * std::sin(theta);
-            x2[2] = 0.0;
+    if (tm_sk.available)
+    {
+        const auto samples = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, tm_sk, r_obs, n_obs, kx, ky);
+        write_field_samples_csv("pec_tm_sk_obs_r2.csv", samples);
+        print_total_field_stats("TM second-kind total-field check", samples, r_obs);
+        std::cout << "Wrote observations to pec_tm_sk_obs_r2.csv\n";
+    }
 
-            const Cplx uinc1 = incident_plane_wave(x1, kx, ky);
-            const Cplx uinc2 = incident_plane_wave(x2, kx, ky);
-            const Cplx usca1 = eval_layer_field(dl_pot, mesh, dof, dens, x1);
-            const Cplx usca2 = eval_layer_field(dl_pot, mesh, dof, dens, x2);
+    if (te_sk.available)
+    {
+        const auto samples = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, te_sk, r_obs, n_obs, kx, ky);
+        write_field_samples_csv("pec_te_sk_obs_r2.csv", samples);
+        print_total_field_stats("TE second-kind total-field observations", samples, r_obs);
+        std::cout << "Wrote observations to pec_te_sk_obs_r2.csv\n";
+    }
 
-            const Cplx utot1 = uinc1 + usca1;
-            const Cplx utot2 = uinc2 + usca2;
+    if (te_fk.available)
+    {
+        const auto samples = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, te_fk, r_obs, n_obs, kx, ky);
+        write_field_samples_csv("pec_te_fk_obs_r2.csv", samples);
+        print_total_field_stats("TE first-kind total-field observations", samples, r_obs);
+        std::cout << "Wrote observations to pec_te_fk_obs_r2.csv\n";
+    }
 
-            const Cplx dnu_tot = (utot2 - utot1) / delta;
-            const Real abs_dnu_tot = std::abs(dnu_tot);
+    if (tm_fk.available && tm_sk.available)
+    {
+        const auto a = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, tm_fk, r_obs, n_obs, kx, ky);
+        const auto b = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, tm_sk, r_obs, n_obs, kx, ky);
+        compare_scattered_fields("TM formulation agreement on observation circle",
+                                 a, b, "pec_tm_formulation_comparison_r2.csv");
+        std::cout << "Wrote comparison to pec_tm_formulation_comparison_r2.csv\n";
+    }
 
-            max_abs_dnu = std::max(max_abs_dnu, abs_dnu_tot);
-            sum_sq_abs_dnu += abs_dnu_tot * abs_dnu_tot;
-
-            fout_bc << theta << ','
-                << std::real(dnu_tot) << ',' << std::imag(dnu_tot) << ','
-                << abs_dnu_tot << '\n';
-        }
-
-        const Real rms_abs_dnu = std::sqrt(sum_sq_abs_dnu / static_cast<Real>(n_bc));
-        std::cout << "Wrote boundary check to " << bc_name << "\n";
-        std::cout << "Neumann check by one-sided radial finite difference, delta = " << delta << "\n";
-        std::cout << "max |dn u_tot| ~= " << max_abs_dnu << "\n";
-        std::cout << "rms |dn u_tot| ~= " << rms_abs_dnu << "\n";
-        Eigen::VectorXcd bc_res = A * dens - rhs;
-        std::cout << "relative boundary residual = "
-                  << bc_res.norm() / rhs.norm() << "\n";
-
-        fout_bc.close();
+    if (te_sk.available && te_fk.available)
+    {
+        const auto a = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, te_sk, r_obs, n_obs, kx, ky);
+        const auto b = sample_total_field_on_circle(mesh, dof, sl_pot, dl_pot, te_fk, r_obs, n_obs, kx, ky);
+        compare_scattered_fields("TE formulation agreement on observation circle",
+                                 a, b, "pec_te_formulation_comparison_r2.csv");
+        std::cout << "Wrote comparison to pec_te_formulation_comparison_r2.csv\n";
     }
 
     return 0;
