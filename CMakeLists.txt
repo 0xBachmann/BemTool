@@ -34,6 +34,7 @@ add_executable(rotating_dielectric_scatter_fast tests/rotating_dielectric_scatte
 #add_executable(pec_cylinder_te_sl tests/pec_cylinder_te_single_layer.cpp)
 #add_executable(pec_cylinder_tm_dl tests/pec_cylinder_tm_double_layer.cpp)
 add_executable(pec_cylinder tests/pec_combined_tmfk_tesk.cpp)
+add_executable(dielectric_cylinder tests/dielectric_cylinder.cpp)
 
 
 
