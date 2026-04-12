@@ -439,6 +439,8 @@ namespace bemtool
       return val;
     }
   };
+  using RH_HS_2D_P0xP1 = BIOpKernel<RH, HS_OP, 2, P0_1D, P1_1D>;
+  using RH_HS_2D_P1xP0 = BIOpKernel<RH, HS_OP, 2, P1_1D, P0_1D>;
 
   using RH_HS_2D_P1xP1 = BIOpKernel<RH, HS_OP, 2, P1_1D, P1_1D>;
   using RH_HS_2D_P2xP2 = BIOpKernel<RH, HS_OP, 2, P2_1D, P2_1D>;
