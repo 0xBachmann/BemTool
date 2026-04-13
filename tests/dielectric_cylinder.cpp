@@ -9,6 +9,8 @@
 #include <string>
 #include <algorithm>
 #include <functional>
+#include <sstream>
+#include <iomanip>
 
 #include "../bemtool/tools.hpp"
 
@@ -638,6 +640,24 @@ namespace
     // Optional comparison helper
     // ============================================================
 
+
+    std::string format_real_for_filename(Real value)
+    {
+        std::ostringstream oss;
+        oss << std::scientific << std::setprecision(6) << static_cast<double>(value);
+        std::string s = oss.str();
+        std::replace(s.begin(), s.end(), '+', 'p');
+        std::replace(s.begin(), s.end(), '-', 'm');
+        std::replace(s.begin(), s.end(), '.', 'p');
+        return s;
+    }
+
+    std::string make_parameter_postfix(Real k0, Real Omega)
+    {
+        return std::string("_k0_") + format_real_for_filename(k0)
+            + std::string("_Omega_") + format_real_for_filename(Omega);
+    }
+
     void compare_scalar_fields(const std::string& label,
                                const std::vector<FieldSample>& a,
                                const std::vector<FieldSample>& b,
@@ -682,8 +702,10 @@ int main(int argc, char* argv[])
     // ============================================================
     // Configuration
     // ============================================================
-
-    constexpr Real k0 = 4.0; // vacuum wavenumber outside if eps_e = mu_e = 1
+    Real k0 = 1.;
+    if (argc > 1) {
+        k0 = std::strtod(argv[1], nullptr);
+    }
     constexpr Real eps_e = 1.0;
     constexpr Real mu_e = 1.0;
 
@@ -691,7 +713,9 @@ int main(int argc, char* argv[])
     constexpr Real mu_i = 1.0;
 
     constexpr Real Omega_e = 0.0;
-    constexpr Real Omega_i = 1e-3; // set nonzero later for rotating interior case
+    const std::vector<Real> Omega_i_values = {
+        -1e-7, -1e-6, -1e-5, -1e-4, -1e-3, -1e-2, -1e-1, 0.0, 1e-1, 1.e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7
+    };
 
     constexpr Real theta_inc = 0.0;
     constexpr Real r_obs_ext = 2.0;
@@ -765,72 +789,21 @@ int main(int argc, char* argv[])
     const Eigen::VectorXcd gamma_inc_p0 = assemble_rhs_from_interpolation(mesh, dof_p0, M_00, gamma_inc_fun);
 
     // ============================================================
-    // Potentials
-    // ============================================================
-    //
-    // Stationary version:
-    //   exterior: standard Helmholtz with k_e
-    //   interior: standard Helmholtz with k_i
-    //
-    // Rotating version:
-    //   replace interior operator/potential types by your rotating-kernel
-    //   classes, keeping exterior stationary.
+    // Exterior potentials and operators (assemble once)
     // ============================================================
 
     Potential<RH_SL_2D_P0> sl_pot_ext_p0(mesh, k_e, eps_e, mu_e, Omega_e);
     Potential<RH_DL_2D_P1> dl_pot_ext_p1(mesh, k_e, eps_e, mu_e, Omega_e);
 
-    Potential<RH_SL_2D_P0> sl_pot_int_p0(mesh, k_i, eps_i, mu_i, Omega_i);
-    Potential<RH_DL_2D_P1> dl_pot_int_p1(mesh, k_i, eps_i, mu_i, Omega_i);
-
-    // ============================================================
-    // Operators: stationary case
-    // ============================================================
-
-    InterfaceSolution sol;
-
-    sol.name = "dielectric";
-    sol.available = true;
-
-    // Exterior
-    BIOp<RH_SL_2D_P1xP0> Ve(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // maps gamma(P0) -> beta(P1)
-    BIOp<RH_DL_2D_P1xP1> Ke(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // maps beta(P1)  -> beta(P1)
-    BIOp<RH_TDL_2D_P0xP0> Kpe(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // maps gamma(P0) -> gamma(P0)
-    BIOp<RH_HS_2D_P0xP1> We(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // maps beta(P1)  -> gamma(P0)
-
-    // Interior
-    BIOp<RH_SL_2D_P1xP0> Vi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
-    BIOp<RH_DL_2D_P1xP1> Ki(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
-    BIOp<RH_TDL_2D_P0xP0> Kpi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
-    BIOp<RH_HS_2D_P0xP1> Wi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+    BIOp<RH_SL_2D_P1xP0> Ve(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // gamma(P0) -> beta(P1)
+    BIOp<RH_DL_2D_P1xP1> Ke(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // beta(P1)  -> beta(P1)
+    BIOp<RH_TDL_2D_P0xP0> Kpe(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // gamma(P0) -> gamma(P0)
+    BIOp<RH_HS_2D_P0xP1> We(mesh, mesh, k_e, eps_e, mu_e, Omega_e); // beta(P1)  -> gamma(P0)
 
     const Eigen::MatrixXcd Ve_mat = assemble_biop_matrix(dof_p1, dof_p0, Ve, "Assembling Ve");
     const Eigen::MatrixXcd Ke_mat = assemble_biop_matrix(dof_p1, dof_p1, Ke, "Assembling Ke");
-    const Eigen::MatrixXcd Vi_mat = assemble_biop_matrix(dof_p1, dof_p0, Vi, "Assembling Vi");
-    const Eigen::MatrixXcd Ki_mat = assemble_biop_matrix(dof_p1, dof_p1, Ki, "Assembling Ki");
-
     const Eigen::MatrixXcd We_mat = assemble_biop_matrix(dof_p0, dof_p1, We, "Assembling We");
     const Eigen::MatrixXcd Kpe_mat = assemble_biop_matrix(dof_p0, dof_p0, Kpe, "Assembling Kpe");
-    const Eigen::MatrixXcd Wi_mat = assemble_biop_matrix(dof_p0, dof_p1, Wi, "Assembling Wi");
-    const Eigen::MatrixXcd Kpi_mat = assemble_biop_matrix(dof_p0, dof_p0, Kpi, "Assembling Kpi");
-
-    // System from thesis Section 3.7:
-    //
-    // [ -Ke-Ki      -Ve+Vi ] [beta ] = [ f_inc ]
-    // [ -We+Wi   Kpe+Kpi   ] [gamma]   [ -g_inc]
-    //
-    // where:
-    // [f_inc]   [ 1/2 I - Ke   Ve       ] [beta_inc ]
-    // [g_inc] = [ We           1/2 I+Kpe] [gamma_inc]
-    //
-    // See equations around the final block system.
-
-    const Eigen::MatrixXcd A11 = -Ke_mat - Ki_mat;
-    const Eigen::MatrixXcd A12 = -Ve_mat + Vi_mat;
-    const Eigen::MatrixXcd A21 = -We_mat + Wi_mat;
-    const Eigen::MatrixXcd A22 = Kpe_mat + Kpi_mat;
-
-    sol.A = make_block_2x2(A11, A12, A21, A22);
 
     const Eigen::VectorXcd f_inc =
         (0.5 * M_11 - Ke_mat) * beta_inc_p1 + Ve_mat * gamma_inc_p0;
@@ -838,46 +811,118 @@ int main(int argc, char* argv[])
     const Eigen::VectorXcd g_inc =
         We_mat * beta_inc_p1 + (0.5 * M_00 + Kpe_mat) * gamma_inc_p0;
 
-    sol.rhs = make_block_rhs(f_inc, -g_inc);
+    // ============================================================
+    // Loop over interior rotation parameters
+    // ============================================================
 
-    std::cout << "solving system\n";
-    const Eigen::VectorXcd x = sol.A.fullPivLu().solve(sol.rhs);
-    split_block_solution(x, nb_p1, sol.beta_p1, sol.gamma_p0);
-    std::cout << "done\n";
+    for (const Real Omega_i : Omega_i_values)
+    {
+        std::cout << "\n========================================\n";
+        std::cout << "Running dielectric case with k0 = " << k0
+            << ", Omega_i = " << Omega_i << "\n";
+        std::cout << "========================================\n";
 
+        const std::string postfix = make_parameter_postfix(k0, Omega_i);
 
-    const Eigen::VectorXcd res = sol.A * x - sol.rhs;
-    sol.relative_bie_residual =
-        res.norm() / std::max(sol.rhs.norm(), Real(1.0e-30));
+        InterfaceSolution sol;
+        sol.name = std::string("dielectric") + postfix;
+        sol.available = true;
 
-    std::cout << "relative BIE residual = "
-        << sol.relative_bie_residual << "\n";
+        // Interior potentials and operators (reassembled for each Omega_i)
+        Potential<RH_SL_2D_P0> sl_pot_int_p0(mesh, k_i, eps_i, mu_i, Omega_i);
+        Potential<RH_DL_2D_P1> dl_pot_int_p1(mesh, k_i, eps_i, mu_i, Omega_i);
 
-    print_trace_jump_stats(sol.beta_p1, sol.gamma_p0,
-                           beta_inc_p1, gamma_inc_p0);
+        BIOp<RH_SL_2D_P1xP0> Vi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+        BIOp<RH_DL_2D_P1xP1> Ki(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+        BIOp<RH_TDL_2D_P0xP0> Kpi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+        BIOp<RH_HS_2D_P0xP1> Wi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
 
-    auto samples = sample_total_field_on_grid(mesh,
-        dof_p0,
-        dof_p1,
-        sl_pot_ext_p0,
-        dl_pot_ext_p1,
-        sl_pot_int_p0,
-        dl_pot_int_p1,
-        sol,
-        beta_inc_p1,
-        gamma_inc_p0,
-        grid_min,
-        grid_max,
-        grid_min,
-        grid_max,
-        grid_nx,
-        grid_ny,
-        kx,
-        ky,
-        interface_radius,
-        interface_skip_tol);
+        const Eigen::MatrixXcd Vi_mat = assemble_biop_matrix(dof_p1, dof_p0, Vi, "Assembling Vi");
+        const Eigen::MatrixXcd Ki_mat = assemble_biop_matrix(dof_p1, dof_p1, Ki, "Assembling Ki");
+        const Eigen::MatrixXcd Wi_mat = assemble_biop_matrix(dof_p0, dof_p1, Wi, "Assembling Wi");
+        const Eigen::MatrixXcd Kpi_mat = assemble_biop_matrix(dof_p0, dof_p0, Kpi, "Assembling Kpi");
 
-    write_grid_samples_csv("dielectric.csv", samples);
+        // System from thesis Section 3.7:
+        // [ -Ke-Ki      -Ve+Vi ] [beta ] = [ f_inc ]
+        // [ -We+Wi   Kpe+Kpi   ] [gamma]   [ -g_inc]
+        const Eigen::MatrixXcd A11 = -Ke_mat - Ki_mat;
+        const Eigen::MatrixXcd A12 = -Ve_mat + Vi_mat;
+        const Eigen::MatrixXcd A21 = -We_mat + Wi_mat;
+        const Eigen::MatrixXcd A22 = Kpe_mat + Kpi_mat;
+
+        sol.A = make_block_2x2(A11, A12, A21, A22);
+        sol.rhs = make_block_rhs(f_inc, -g_inc);
+
+        std::cout << "solving system\n";
+        const Eigen::VectorXcd x = sol.A.fullPivLu().solve(sol.rhs);
+        split_block_solution(x, nb_p1, sol.beta_p1, sol.gamma_p0);
+        std::cout << "done\n";
+
+        const Eigen::VectorXcd res = sol.A * x - sol.rhs;
+        sol.relative_bie_residual =
+            res.norm() / std::max(sol.rhs.norm(), Real(1.0e-30));
+
+        std::cout << "relative BIE residual = "
+            << sol.relative_bie_residual << "\n";
+
+        print_trace_jump_stats(sol.beta_p1, sol.gamma_p0,
+                               beta_inc_p1, gamma_inc_p0);
+
+        auto exterior_circle_samples = sample_exterior_total_field_on_circle(
+            mesh,
+            dof_p0,
+            dof_p1,
+            sl_pot_ext_p0,
+            dl_pot_ext_p1,
+            sol,
+            beta_inc_p1,
+            gamma_inc_p0,
+            r_obs_ext,
+            n_obs,
+            kx,
+            ky);
+
+        auto interior_circle_samples = sample_interior_transmitted_field_on_circle(
+            mesh,
+            dof_p0,
+            dof_p1,
+            sl_pot_int_p0,
+            dl_pot_int_p1,
+            sol,
+            r_obs_int,
+            n_obs);
+
+        auto grid_samples = sample_total_field_on_grid(
+            mesh,
+            dof_p0,
+            dof_p1,
+            sl_pot_ext_p0,
+            dl_pot_ext_p1,
+            sl_pot_int_p0,
+            dl_pot_int_p1,
+            sol,
+            beta_inc_p1,
+            gamma_inc_p0,
+            grid_min,
+            grid_max,
+            grid_min,
+            grid_max,
+            grid_nx,
+            grid_ny,
+            kx,
+            ky,
+            interface_radius,
+            interface_skip_tol);
+
+        print_field_stats("Exterior total field", exterior_circle_samples, r_obs_ext);
+        print_field_stats("Interior transmitted field", interior_circle_samples, r_obs_int);
+        print_grid_field_stats("Total field", grid_samples);
+
+        write_field_samples_csv("dielectric_ext_circle" + postfix + ".csv", exterior_circle_samples);
+        write_field_samples_csv("dielectric_int_circle" + postfix + ".csv", interior_circle_samples);
+        write_grid_samples_csv("dielectric_grid" + postfix + ".csv", grid_samples);
+    }
+
 
     return 0;
 }
