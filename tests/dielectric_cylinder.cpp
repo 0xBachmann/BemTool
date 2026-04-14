@@ -740,8 +740,8 @@ int main(int argc, char* argv[])
 
     constexpr Real Omega_e = 0.0;
     const std::vector<Real> Omega_i_values = {
-        // -1e-7, -1e-6, -1e-5, -1e-4, -1e-3, -1e-2, -1e-1, 0.0, 1e-1, 1.e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7
-        1e-3
+        -1e-7, -1e-6, -1e-5, -1e-4, -1e-3, -1e-2, -1e-1, 0.0, 1e-1, 1.e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7,
+        // 0.02, 0.04, 0.06, 0.08, -0.02, -0.04, -0.06, -0.08,
     };
 
     constexpr Real theta_inc = 0.0;
