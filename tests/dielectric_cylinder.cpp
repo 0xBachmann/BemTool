@@ -727,6 +727,11 @@ int main(int argc, char* argv[])
     if (argc > 1) {
         k0 = std::strtod(argv[1], nullptr);
     }
+    std::string out_dir = ".";
+    if (argc > 2)
+    {
+        out_dir = argv[2];
+    }
     constexpr Real eps_e = 1.0;
     constexpr Real mu_e = 1.0;
 
@@ -941,9 +946,9 @@ int main(int argc, char* argv[])
         print_field_stats("Interior transmitted field", interior_circle_samples, r_obs_int);
         print_grid_field_stats("Total field", grid_samples);
 
-        write_field_samples_csv("dielectric_ext_circle" + postfix + ".csv", exterior_circle_samples);
-        write_field_samples_csv("dielectric_int_circle" + postfix + ".csv", interior_circle_samples);
-        write_grid_samples_csv("dielectric_grid" + postfix + ".csv", grid_samples);
+        write_field_samples_csv(out_dir + "/dielectric_ext_circle" + postfix + ".csv", exterior_circle_samples);
+        write_field_samples_csv(out_dir + "/dielectric_int_circle" + postfix + ".csv", interior_circle_samples);
+        write_grid_samples_csv(out_dir + "/dielectric_grid" + postfix + ".csv", grid_samples);
     }
 
 
