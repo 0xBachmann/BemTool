@@ -727,11 +727,7 @@ int main(int argc, char* argv[])
     if (argc > 1) {
         k0 = std::strtod(argv[1], nullptr);
     }
-    std::string out_dir = ".";
-    if (argc > 2)
-    {
-        out_dir = argv[2];
-    }
+
     constexpr Real eps_e = 1.0;
     constexpr Real mu_e = 1.0;
 
@@ -756,7 +752,13 @@ int main(int argc, char* argv[])
     constexpr Real interface_skip_tol = 0.003;
 
     const Real n_e = std::sqrt(eps_e * mu_e);
-    const Real n_i = std::sqrt(eps_i * mu_i);
+    Real n_i = std::sqrt(eps_i * mu_i);
+    std::string out_dir = ".";
+    if (argc > 2)
+    {
+        n_i = std::strtod(argv[1], nullptr);
+        out_dir = "n" + std::string(argv[2]);
+    }
 
     const Real k_e = k0 * n_e;
     const Real k_i = k0 * n_i;
