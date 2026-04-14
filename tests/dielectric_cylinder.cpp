@@ -51,8 +51,6 @@ namespace
     struct GridSample
     {
         R3 x;
-        bool is_inside = false;
-        bool is_skipped = false;
 
         Cplx uinc = 0.0;
         Cplx usca = 0.0;
@@ -492,16 +490,18 @@ namespace
                 GridSample s;
                 s.x = x;
 
+                bool is_skipped = false;
+
                 if (point_too_close_to_circle(x, interface_radius, skip_tolerance))
                 {
-                    s.is_skipped = true;
+                    is_skipped = true;
                     samples.push_back(s);
                     continue;
                 }
 
-                s.is_inside = point_inside_circle(x, interface_radius);
+                bool is_inside = point_inside_circle(x, interface_radius);
 
-                if (s.is_inside)
+                if (is_inside)
                 {
                     s.utr = eval_interior_transmitted_field(
                         sl_pot_int, dl_pot_int,
@@ -561,14 +561,13 @@ namespace
         {
             fout << s.x[0] << ','
                 << s.x[1] << ','
-                << (s.is_inside ? 1 : 0) << ','
-                << (s.is_skipped ? 1 : 0) << ','
                 << std::real(s.uinc) << ',' << std::imag(s.uinc) << ','
                 << std::real(s.usca) << ',' << std::imag(s.usca) << ','
                 << std::real(s.utr) << ',' << std::imag(s.utr) << ','
                 << std::real(s.utot) << ',' << std::imag(s.utot) << ','
                 << std::abs(s.utot) << '\n';
         }
+        std::cout << "wrote to " << filename << "\n";
     }
 
     void print_field_stats(const std::string& label,
@@ -598,16 +597,9 @@ namespace
         Real max_abs = 0.0;
         Real sum_sq = 0.0;
         int count = 0;
-        int skipped = 0;
 
         for (const auto& s : samples)
         {
-            if (s.is_skipped)
-            {
-                ++skipped;
-                continue;
-            }
-
             const Real a = std::abs(s.utot);
             max_abs = std::max(max_abs, a);
             sum_sq += a * a;
@@ -618,7 +610,6 @@ namespace
 
         std::cout << label << " on Cartesian grid\n";
         std::cout << "evaluated points = " << count << "\n";
-        std::cout << "skipped points = " << skipped << "\n";
         std::cout << "max |u| = " << max_abs << "\n";
         std::cout << "rms |u| = " << rms << "\n";
     }
@@ -756,7 +747,7 @@ int main(int argc, char* argv[])
     std::string out_dir = ".";
     if (argc > 2)
     {
-        n_i = std::strtod(argv[1], nullptr);
+        n_i = std::strtod(argv[2], nullptr);
         out_dir = "n" + std::string(argv[2]);
     }
 
@@ -898,29 +889,29 @@ int main(int argc, char* argv[])
         print_trace_jump_stats(sol.beta_p1, sol.gamma_p0,
                                beta_inc_p1, gamma_inc_p0);
 
-        auto exterior_circle_samples = sample_exterior_total_field_on_circle(
-            mesh,
-            dof_p0,
-            dof_p1,
-            sl_pot_ext_p0,
-            dl_pot_ext_p1,
-            sol,
-            beta_inc_p1,
-            gamma_inc_p0,
-            r_obs_ext,
-            n_obs,
-            kx,
-            ky);
-
-        auto interior_circle_samples = sample_interior_transmitted_field_on_circle(
-            mesh,
-            dof_p0,
-            dof_p1,
-            sl_pot_int_p0,
-            dl_pot_int_p1,
-            sol,
-            r_obs_int,
-            n_obs);
+        // auto exterior_circle_samples = sample_exterior_total_field_on_circle(
+        //     mesh,
+        //     dof_p0,
+        //     dof_p1,
+        //     sl_pot_ext_p0,
+        //     dl_pot_ext_p1,
+        //     sol,
+        //     beta_inc_p1,
+        //     gamma_inc_p0,
+        //     r_obs_ext,
+        //     n_obs,
+        //     kx,
+        //     ky);
+        //
+        // auto interior_circle_samples = sample_interior_transmitted_field_on_circle(
+        //     mesh,
+        //     dof_p0,
+        //     dof_p1,
+        //     sl_pot_int_p0,
+        //     dl_pot_int_p1,
+        //     sol,
+        //     r_obs_int,
+        //     n_obs);
 
         auto grid_samples = sample_total_field_on_grid(
             mesh,
@@ -943,13 +934,14 @@ int main(int argc, char* argv[])
             ky,
             interface_radius,
             interface_skip_tol);
+        std::cout << "returned from sample_total_field_on_grid\n";
 
-        print_field_stats("Exterior total field", exterior_circle_samples, r_obs_ext);
-        print_field_stats("Interior transmitted field", interior_circle_samples, r_obs_int);
-        print_grid_field_stats("Total field", grid_samples);
+        // print_field_stats("Exterior total field", exterior_circle_samples, r_obs_ext);
+        // print_field_stats("Interior transmitted field", interior_circle_samples, r_obs_int);
+        // print_grid_field_stats("Total field", grid_samples);
 
-        write_field_samples_csv(out_dir + "/dielectric_ext_circle" + postfix + ".csv", exterior_circle_samples);
-        write_field_samples_csv(out_dir + "/dielectric_int_circle" + postfix + ".csv", interior_circle_samples);
+        // write_field_samples_csv(out_dir + "/dielectric_ext_circle" + postfix + ".csv", exterior_circle_samples);
+        // write_field_samples_csv(out_dir + "/dielectric_int_circle" + postfix + ".csv", interior_circle_samples);
         write_grid_samples_csv(out_dir + "/dielectric_grid" + postfix + ".csv", grid_samples);
     }
 
