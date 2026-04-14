@@ -754,6 +754,8 @@ int main(int argc, char* argv[])
         out_dir = "n" + std::string(argv[3]);
     }
 
+    std::cout << "Using parameters k0 = " << k0 << ", Omega_i = " << Omega_i << ", n_i = " << n_i << "\n";
+
     const Real k_e = k0 * n_e;
     const Real k_i = k0 * n_i;
 
