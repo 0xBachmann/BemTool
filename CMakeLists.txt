@@ -27,7 +27,7 @@ link_libraries(Eigen3::Eigen)
 add_executable(test2D test2D.cpp)
 add_executable(test3D test3D.cpp)
 add_executable(cylinder2D cylinder2d.cpp)
-add_executable(scatter_TE_PEC_two_trace scatter_TE_PEC_two_trace.cpp)
+#add_executable(scatter_TE_PEC_two_trace scatter_TE_PEC_two_trace.cpp)
 
 add_executable(rotating_dielectric_scatter tests/rotating_dielectric_scatter_2D.cpp)
 add_executable(rotating_dielectric_scatter_fast tests/rotating_dielectric_scatter_2D_fast.cpp)

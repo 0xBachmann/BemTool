@@ -1,20 +1,19 @@
 //===================================================================
 //  Rotating Helmholtz potentials (FAST approximation, no spectral sum)
 //
-//  Uses the first-order rotating Green's function approximation
+//  Uses the same first-order rotating Green's function approximation
+//  and the same source-normal derivative convention as the operator
+//  implementation.
 //
-//    G(x,y) \approx (i/4) H_0^{(1)}(khat |x-y|) * exp(i * alpha * det(x,y))
+//    G(x,y) = pref * H_0^{(1)}(khat |x-y|) * exp(sigma * cross(x,y))
 //
 //  where
-//    khat  = k * sqrt(eps*mu)
-//    alpha = Omega / k^2
-//    det(x,y) = x_y*y_x - x_x*y_y  (i.e. (x \times y)_z)
+//    khat  = k0 * sqrt(eps*mu)
+//    sigma = -i * (Omega * k0 / c0)
+//    cross(x,y) = x_x*y_y - x_y*y_x
 //
-//  DL potential uses BemTool's convention:
-//    u(x) = \int_\Gamma (-\partial_{n_y} G(x,y)) \varphi(y) ds_y
-//
-//  This header is the "fast" analogue of rotating_helmholtz_singrem_real_pot.hpp
-//  but with the closed-form approximation (no M-truncation, no c, no keep_D2).
+//  The double-layer potential returns +\partial_{n_y} G(x,y), matching
+//  the operator kernel convention used in the assembly code.
 //====================================================================
 #ifndef BEMTOOL_POTENTIAL_ROTATING_HELMHOLTZ_FAST_HPP
 #define BEMTOOL_POTENTIAL_ROTATING_HELMHOLTZ_FAST_HPP
@@ -38,19 +37,18 @@ namespace bemtool
     typename Trait::JacY dy;
     PhiY phiy;
 
-    // parameters
     const Real k0;
     const Real eps;
     const Real mu;
     const Real Omega;
 
     const Real khat;
-    const Real alpha;
+    const Real c0;
+    const Cplx sigma;
     const Cplx pref;
 
-    // cached element data
     R3 y0;
-    R3 x; // evaluation point
+    R3 x;
     R3 y;
     Real h{};
     Cplx ker;
@@ -68,7 +66,8 @@ namespace bemtool
       , mu(mu_)
       , Omega(Omega_)
       , khat(k0_ * std::sqrt(eps_ * mu_))
-      , alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
+      , c0(1.0)
+      , sigma(-iu * (Omega_ * k0_ / c0))
       , pref(detail_rh_fast::kernel_prefactor())
     {}
 
@@ -89,15 +88,12 @@ namespace bemtool
       const Real dyv = x[1] - y[1];
       const Real R = std::hypot(dx, dyv);
 
-      // stationary Hankel part
       const Real z = khat * R;
-      const Cplx Gst = pref * Hankel(0, z);
+      const Cplx H0 = Hankel(0, z);
+      const Real cross = x[0] * y[1] - x[1] * y[0];
+      const Cplx phase = std::exp(sigma * cross);
 
-      // rotating phase
-      const Real det = x[1] * y[0] - x[0] * y[1];
-      const Cplx phase = std::exp(iu * alpha * det);
-
-      const Cplx G = Gst * phase;
+      const Cplx G = pref * H0 * phase;
       ker = h * G;
 
       for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -135,17 +131,16 @@ namespace bemtool
     typename Trait::JacY dy;
     PhiY phiy;
 
-    // parameters
     const Real k0;
     const Real eps;
     const Real mu;
     const Real Omega;
 
     const Real khat;
-    const Real alpha;
+    const Real c0;
+    const Cplx sigma;
     const Cplx pref;
 
-    // cached element data
     R3 y0;
     R3 x;
     R3 y;
@@ -167,7 +162,8 @@ namespace bemtool
       , mu(mu_)
       , Omega(Omega_)
       , khat(k0_ * std::sqrt(eps_ * mu_))
-      , alpha((k0_ != 0.) ? (Omega_ / (k0_ * k0_)) : 0.)
+      , c0(1.0)
+      , sigma(-iu * (Omega_ * k0_ / c0))
       , pref(detail_rh_fast::kernel_prefactor())
     {}
 
@@ -189,29 +185,19 @@ namespace bemtool
       const Real ry = x[1] - y[1];
       const Real R = std::hypot(rx, ry);
 
-      // stationary Hankel part
       const Real z = khat * R;
       const Cplx H0 = Hankel(0, z);
       const Cplx H1 = Hankel(1, z);
-      const Cplx Gst = pref * H0;
 
-      // d/dn_y Gst (derivative w.r.t. source point y)
-      // grad_y Gst = (iu/4) * khat * H1(z) * (x-y)/R
-      const Real dot = (R > 0.) ? ((rx * ny[0] + ry * ny[1]) / R) : 0.;
-      const Cplx dnGst = pref * khat * H1 * dot;
+      const Real cross = x[0] * y[1] - x[1] * y[0];
+      const Cplx phase = std::exp(sigma * cross);
 
-      // rotating phase and its normal derivative factor
-      const Real det = x[1] * y[0] - x[0] * y[1];
-      const Cplx phase = std::exp(iu * alpha * det);
+      const Real s_src = (R > 0.) ? ((rx * ny[0] + ry * ny[1]) / R) : 0.0;
+      const Real q_src = x[1] * ny[0] - x[0] * ny[1];
 
-      // d/dn_y det = (x_y, -x_x) · n_y
-      const Real dndet = x[1] * ny[0] - x[0] * ny[1];
+      const Cplx dnG = pref * phase * (khat * H1 * s_src + sigma * H0 * q_src);
 
-      // dnG = phase * (dnGst + i*alpha*dndet*Gst)
-      const Cplx dnG = phase * (dnGst + iu * alpha * dndet * Gst);
-
-      // BemTool DL convention: kernel returns -dnG * ds
-      ker = -h * dnG;
+      ker = h * dnG;
 
       for (int k = 0; k < Trait::nb_dof_y; ++k)
         mat(0, k) = ker * phiy(k, tj);

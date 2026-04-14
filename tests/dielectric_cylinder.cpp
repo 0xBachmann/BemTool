@@ -197,6 +197,27 @@ namespace
         return out;
     }
 
+    template <typename FUNC>
+    Eigen::VectorXcd L2ProjectionToP1(FUNC g, const Mesh1D& mesh,
+                               const Dof<P1_1D>& dof_p1, const Eigen::MatrixXcd& M11) {
+        // L2 projection of Dirichlet data g
+        // Idea: projection g_h can be written in terms of P1 basis functions and satisfies
+        // the orthogonality relation: (g - g_h, b_i) = 0 for all i.
+        // Collecting coefficients of g_h^j in terms of the basis b_j gives the linear system
+        // \sum_{j=1..N} g_h^j (b_j,b_i) = (g, b_i)
+        // (b_j, b_i) is the matrix M11
+
+        // Computing (g, b_i) for all basis functions b_i in the space P1
+        // Can be done by simply using Gauss quadrature
+        const Eigen::VectorXcd g_b = L2WithP1Basis(g, mesh, dof_p1);
+
+        // Projecting the dirichlet data by solving the linear system
+        // Computing the coefficients g_h^j by solving the linear system
+        const Eigen::VectorXcd g_projected = M11.fullPivLu().solve(g_b);
+
+        return g_projected;
+    }
+
     template <typename Space>
     Eigen::VectorXcd assemble_rhs_from_interpolation(const Mesh1D& mesh,
                                                      const Dof<Space>& dof,
@@ -702,7 +723,7 @@ int main(int argc, char* argv[])
     // ============================================================
     // Configuration
     // ============================================================
-    Real k0 = 1.;
+    Real k0 = 3.;
     if (argc > 1) {
         k0 = std::strtod(argv[1], nullptr);
     }
@@ -714,7 +735,8 @@ int main(int argc, char* argv[])
 
     constexpr Real Omega_e = 0.0;
     const std::vector<Real> Omega_i_values = {
-        -1e-7, -1e-6, -1e-5, -1e-4, -1e-3, -1e-2, -1e-1, 0.0, 1e-1, 1.e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7
+        // -1e-7, -1e-6, -1e-5, -1e-4, -1e-3, -1e-2, -1e-1, 0.0, 1e-1, 1.e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7
+        1e-3
     };
 
     constexpr Real theta_inc = 0.0;
@@ -726,7 +748,7 @@ int main(int argc, char* argv[])
     constexpr int grid_nx = 201;
     constexpr int grid_ny = 201;
     constexpr Real interface_radius = 1.0;
-    constexpr Real interface_skip_tol = 0.001;
+    constexpr Real interface_skip_tol = 0.003;
 
     const Real n_e = std::sqrt(eps_e * mu_e);
     const Real n_i = std::sqrt(eps_i * mu_i);
@@ -785,9 +807,10 @@ int main(int argc, char* argv[])
         return neumann_trace_incident_circle(x, kx, ky);
     };
 
-    const Eigen::VectorXcd beta_inc_p1 = L2WithP1Basis(beta_inc_fun, mesh, dof_p1);
-    const Eigen::VectorXcd gamma_inc_p0 = assemble_rhs_from_interpolation(mesh, dof_p0, M_00, gamma_inc_fun);
-
+    // const Eigen::VectorXcd beta_inc_p1 = L2WithP1Basis(beta_inc_fun, mesh, dof_p1);
+    // const Eigen::VectorXcd gamma_inc_p0 = assemble_rhs_from_interpolation(mesh, dof_p0, M_00, gamma_inc_fun);
+    const Eigen::VectorXcd beta_inc_p1 = L2ProjectionToP1(beta_inc_fun, mesh, dof_p1, M_11);
+    const Eigen::VectorXcd gamma_inc_p0 = interpolate_to_dofs(mesh, dof_p0, gamma_inc_fun);
     // ============================================================
     // Exterior potentials and operators (assemble once)
     // ============================================================
