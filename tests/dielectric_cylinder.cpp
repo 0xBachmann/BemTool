@@ -197,7 +197,8 @@ namespace
 
     template <typename FUNC>
     Eigen::VectorXcd L2ProjectionToP1(FUNC g, const Mesh1D& mesh,
-                               const Dof<P1_1D>& dof_p1, const Eigen::MatrixXcd& M11) {
+                                      const Dof<P1_1D>& dof_p1, const Eigen::MatrixXcd& M11)
+    {
         // L2 projection of Dirichlet data g
         // Idea: projection g_h can be written in terms of P1 basis functions and satisfies
         // the orthogonality relation: (g - g_h, b_i) = 0 for all i.
@@ -715,7 +716,8 @@ int main(int argc, char* argv[])
     // Configuration
     // ============================================================
     Real k0 = 3.;
-    if (argc > 1) {
+    if (argc > 1)
+    {
         k0 = std::strtod(argv[1], nullptr);
     }
 
@@ -726,10 +728,11 @@ int main(int argc, char* argv[])
     constexpr Real mu_i = 1.0;
 
     constexpr Real Omega_e = 0.0;
-    const std::vector<Real> Omega_i_values = {
-        -1e-7, -1e-6, -1e-5, -1e-4, -1e-3, -1e-2, -1e-1, 0.0, 1e-1, 1.e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7,
-        // 0.02, 0.04, 0.06, 0.08, -0.02, -0.04, -0.06, -0.08,
-    };
+    Real Omega_i = 0;
+    if (argc > 2)
+    {
+        Omega_i = std::strtod(argv[2], nullptr);
+    }
 
     constexpr Real theta_inc = 0.0;
     constexpr Real r_obs_ext = 2.0;
@@ -737,18 +740,18 @@ int main(int argc, char* argv[])
     constexpr int n_obs = 720;
     constexpr Real grid_min = -2.0;
     constexpr Real grid_max = 2.0;
-    constexpr int grid_nx = 201;
-    constexpr int grid_ny = 201;
+    constexpr int grid_nx = 151;
+    constexpr int grid_ny = 151;
     constexpr Real interface_radius = 1.0;
     constexpr Real interface_skip_tol = 0.003;
 
     const Real n_e = std::sqrt(eps_e * mu_e);
     Real n_i = std::sqrt(eps_i * mu_i);
     std::string out_dir = ".";
-    if (argc > 2)
+    if (argc > 3)
     {
-        n_i = std::strtod(argv[2], nullptr);
-        out_dir = "n" + std::string(argv[2]);
+        n_i = std::strtod(argv[3], nullptr);
+        out_dir = "n" + std::string(argv[3]);
     }
 
     const Real k_e = k0 * n_e;
@@ -836,114 +839,112 @@ int main(int argc, char* argv[])
     // Loop over interior rotation parameters
     // ============================================================
 
-    for (const Real Omega_i : Omega_i_values)
-    {
-        std::cout << "\n========================================\n";
-        std::cout << "Running dielectric case with k0 = " << k0
-            << ", Omega_i = " << Omega_i << "\n";
-        std::cout << "========================================\n";
 
-        const std::string postfix = make_parameter_postfix(k0, Omega_i);
+    std::cout << "\n========================================\n";
+    std::cout << "Running dielectric case with k0 = " << k0
+        << ", Omega_i = " << Omega_i << "\n";
+    std::cout << "========================================\n";
 
-        InterfaceSolution sol;
-        sol.name = std::string("dielectric") + postfix;
-        sol.available = true;
+    const std::string postfix = make_parameter_postfix(k0, Omega_i);
 
-        // Interior potentials and operators (reassembled for each Omega_i)
-        Potential<RH_SL_2D_P0> sl_pot_int_p0(mesh, k_i, eps_i, mu_i, Omega_i);
-        Potential<RH_DL_2D_P1> dl_pot_int_p1(mesh, k_i, eps_i, mu_i, Omega_i);
+    InterfaceSolution sol;
+    sol.name = std::string("dielectric") + postfix;
+    sol.available = true;
 
-        BIOp<RH_SL_2D_P1xP0> Vi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
-        BIOp<RH_DL_2D_P1xP1> Ki(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
-        BIOp<RH_TDL_2D_P0xP0> Kpi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
-        BIOp<RH_HS_2D_P0xP1> Wi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+    // Interior potentials and operators (reassembled for each Omega_i)
+    Potential<RH_SL_2D_P0> sl_pot_int_p0(mesh, k_i, eps_i, mu_i, Omega_i);
+    Potential<RH_DL_2D_P1> dl_pot_int_p1(mesh, k_i, eps_i, mu_i, Omega_i);
 
-        const Eigen::MatrixXcd Vi_mat = assemble_biop_matrix(dof_p1, dof_p0, Vi, "Assembling Vi");
-        const Eigen::MatrixXcd Ki_mat = assemble_biop_matrix(dof_p1, dof_p1, Ki, "Assembling Ki");
-        const Eigen::MatrixXcd Wi_mat = assemble_biop_matrix(dof_p0, dof_p1, Wi, "Assembling Wi");
-        const Eigen::MatrixXcd Kpi_mat = assemble_biop_matrix(dof_p0, dof_p0, Kpi, "Assembling Kpi");
+    BIOp<RH_SL_2D_P1xP0> Vi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+    BIOp<RH_DL_2D_P1xP1> Ki(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+    BIOp<RH_TDL_2D_P0xP0> Kpi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
+    BIOp<RH_HS_2D_P0xP1> Wi(mesh, mesh, k_i, eps_i, mu_i, Omega_i);
 
-        // System from thesis Section 3.7:
-        // [ -Ke-Ki      -Ve+Vi ] [beta ] = [ f_inc ]
-        // [ -We+Wi   Kpe+Kpi   ] [gamma]   [ -g_inc]
-        const Eigen::MatrixXcd A11 = -Ke_mat - Ki_mat;
-        const Eigen::MatrixXcd A12 = -Ve_mat + Vi_mat;
-        const Eigen::MatrixXcd A21 = -We_mat + Wi_mat;
-        const Eigen::MatrixXcd A22 = Kpe_mat + Kpi_mat;
+    const Eigen::MatrixXcd Vi_mat = assemble_biop_matrix(dof_p1, dof_p0, Vi, "Assembling Vi");
+    const Eigen::MatrixXcd Ki_mat = assemble_biop_matrix(dof_p1, dof_p1, Ki, "Assembling Ki");
+    const Eigen::MatrixXcd Wi_mat = assemble_biop_matrix(dof_p0, dof_p1, Wi, "Assembling Wi");
+    const Eigen::MatrixXcd Kpi_mat = assemble_biop_matrix(dof_p0, dof_p0, Kpi, "Assembling Kpi");
 
-        sol.A = make_block_2x2(A11, A12, A21, A22);
-        sol.rhs = make_block_rhs(f_inc, -g_inc);
+    // System from thesis Section 3.7:
+    // [ -Ke-Ki      -Ve+Vi ] [beta ] = [ f_inc ]
+    // [ -We+Wi   Kpe+Kpi   ] [gamma]   [ -g_inc]
+    const Eigen::MatrixXcd A11 = -Ke_mat - Ki_mat;
+    const Eigen::MatrixXcd A12 = -Ve_mat + Vi_mat;
+    const Eigen::MatrixXcd A21 = -We_mat + Wi_mat;
+    const Eigen::MatrixXcd A22 = Kpe_mat + Kpi_mat;
 
-        std::cout << "solving system\n";
-        const Eigen::VectorXcd x = sol.A.fullPivLu().solve(sol.rhs);
-        split_block_solution(x, nb_p1, sol.beta_p1, sol.gamma_p0);
-        std::cout << "done\n";
+    sol.A = make_block_2x2(A11, A12, A21, A22);
+    sol.rhs = make_block_rhs(f_inc, -g_inc);
 
-        const Eigen::VectorXcd res = sol.A * x - sol.rhs;
-        sol.relative_bie_residual =
-            res.norm() / std::max(sol.rhs.norm(), Real(1.0e-30));
+    std::cout << "solving system\n";
+    const Eigen::VectorXcd x = sol.A.fullPivLu().solve(sol.rhs);
+    split_block_solution(x, nb_p1, sol.beta_p1, sol.gamma_p0);
+    std::cout << "done\n";
 
-        std::cout << "relative BIE residual = "
-            << sol.relative_bie_residual << "\n";
+    const Eigen::VectorXcd res = sol.A * x - sol.rhs;
+    sol.relative_bie_residual =
+        res.norm() / std::max(sol.rhs.norm(), Real(1.0e-30));
 
-        print_trace_jump_stats(sol.beta_p1, sol.gamma_p0,
-                               beta_inc_p1, gamma_inc_p0);
+    std::cout << "relative BIE residual = "
+        << sol.relative_bie_residual << "\n";
+    //
+    // print_trace_jump_stats(sol.beta_p1, sol.gamma_p0,
+    //                        beta_inc_p1, gamma_inc_p0);
 
-        // auto exterior_circle_samples = sample_exterior_total_field_on_circle(
-        //     mesh,
-        //     dof_p0,
-        //     dof_p1,
-        //     sl_pot_ext_p0,
-        //     dl_pot_ext_p1,
-        //     sol,
-        //     beta_inc_p1,
-        //     gamma_inc_p0,
-        //     r_obs_ext,
-        //     n_obs,
-        //     kx,
-        //     ky);
-        //
-        // auto interior_circle_samples = sample_interior_transmitted_field_on_circle(
-        //     mesh,
-        //     dof_p0,
-        //     dof_p1,
-        //     sl_pot_int_p0,
-        //     dl_pot_int_p1,
-        //     sol,
-        //     r_obs_int,
-        //     n_obs);
+    // auto exterior_circle_samples = sample_exterior_total_field_on_circle(
+    //     mesh,
+    //     dof_p0,
+    //     dof_p1,
+    //     sl_pot_ext_p0,
+    //     dl_pot_ext_p1,
+    //     sol,
+    //     beta_inc_p1,
+    //     gamma_inc_p0,
+    //     r_obs_ext,
+    //     n_obs,
+    //     kx,
+    //     ky);
+    //
+    // auto interior_circle_samples = sample_interior_transmitted_field_on_circle(
+    //     mesh,
+    //     dof_p0,
+    //     dof_p1,
+    //     sl_pot_int_p0,
+    //     dl_pot_int_p1,
+    //     sol,
+    //     r_obs_int,
+    //     n_obs);
 
-        auto grid_samples = sample_total_field_on_grid(
-            mesh,
-            dof_p0,
-            dof_p1,
-            sl_pot_ext_p0,
-            dl_pot_ext_p1,
-            sl_pot_int_p0,
-            dl_pot_int_p1,
-            sol,
-            beta_inc_p1,
-            gamma_inc_p0,
-            grid_min,
-            grid_max,
-            grid_min,
-            grid_max,
-            grid_nx,
-            grid_ny,
-            kx,
-            ky,
-            interface_radius,
-            interface_skip_tol);
-        std::cout << "returned from sample_total_field_on_grid\n";
+    auto grid_samples = sample_total_field_on_grid(
+        mesh,
+        dof_p0,
+        dof_p1,
+        sl_pot_ext_p0,
+        dl_pot_ext_p1,
+        sl_pot_int_p0,
+        dl_pot_int_p1,
+        sol,
+        beta_inc_p1,
+        gamma_inc_p0,
+        grid_min,
+        grid_max,
+        grid_min,
+        grid_max,
+        grid_nx,
+        grid_ny,
+        kx,
+        ky,
+        interface_radius,
+        interface_skip_tol);
+    std::cout << "returned from sample_total_field_on_grid\n";
 
-        // print_field_stats("Exterior total field", exterior_circle_samples, r_obs_ext);
-        // print_field_stats("Interior transmitted field", interior_circle_samples, r_obs_int);
-        // print_grid_field_stats("Total field", grid_samples);
+    // print_field_stats("Exterior total field", exterior_circle_samples, r_obs_ext);
+    // print_field_stats("Interior transmitted field", interior_circle_samples, r_obs_int);
+    // print_grid_field_stats("Total field", grid_samples);
 
-        // write_field_samples_csv(out_dir + "/dielectric_ext_circle" + postfix + ".csv", exterior_circle_samples);
-        // write_field_samples_csv(out_dir + "/dielectric_int_circle" + postfix + ".csv", interior_circle_samples);
-        write_grid_samples_csv(out_dir + "/dielectric_grid" + postfix + ".csv", grid_samples);
-    }
+    // write_field_samples_csv(out_dir + "/dielectric_ext_circle" + postfix + ".csv", exterior_circle_samples);
+    // write_field_samples_csv(out_dir + "/dielectric_int_circle" + postfix + ".csv", interior_circle_samples);
+    write_grid_samples_csv(out_dir + "/dielectric_grid" + postfix + ".csv", grid_samples);
 
 
     return 0;
