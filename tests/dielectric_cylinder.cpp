@@ -726,7 +726,7 @@ int main(int argc, char* argv[])
     constexpr int grid_nx = 201;
     constexpr int grid_ny = 201;
     constexpr Real interface_radius = 1.0;
-    constexpr Real interface_skip_tol = 0.003;
+    constexpr Real interface_skip_tol = 0.001;
 
     const Real n_e = std::sqrt(eps_e * mu_e);
     const Real n_i = std::sqrt(eps_i * mu_i);
