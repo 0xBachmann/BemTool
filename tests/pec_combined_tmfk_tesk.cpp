@@ -72,7 +72,7 @@ namespace
             const auto& edof = dof[e];
             for (int k = 0; k < Space::nb_dof_loc; ++k)
             {
-                coeffs(edof[k]) = local_vals[k];
+                coeffs(edof[k]) = local_vals[k]; // works only for P0 and P1 for circles
             }
         }
         return coeffs;
@@ -87,8 +87,8 @@ namespace
         static const Real X[8] = {
             -0.9602898564975363, -0.7966664774136267,
             -0.5255324099163290, -0.1834346424956498,
-             0.1834346424956498,  0.5255324099163290,
-             0.7966664774136267,  0.9602898564975363
+            0.1834346424956498, 0.5255324099163290,
+            0.7966664774136267, 0.9602898564975363
         };
         static const Real W[8] = {
             0.1012285362903763, 0.2223810344533745,
@@ -137,7 +137,8 @@ namespace
 
     template <typename FUNC>
     Eigen::VectorXcd L2ProjectionToP1(FUNC g, const Mesh1D& mesh,
-                                   const Dof<P1_1D>& dof_p1, const Eigen::MatrixXcd& M11) {
+                                      const Dof<P1_1D>& dof_p1, const Eigen::MatrixXcd& M11)
+    {
         // L2 projection of Dirichlet data g
         // Idea: projection g_h can be written in terms of P1 basis functions and satisfies
         // the orthogonality relation: (g - g_h, b_i) = 0 for all i.
@@ -151,7 +152,7 @@ namespace
 
         // Projecting the dirichlet data by solving the linear system
         // Computing the coefficients g_h^j by solving the linear system
-        const Eigen::VectorXd g_projected = M11.fullPivLu().solve(g_b);
+        const Eigen::VectorXcd g_projected = M11.fullPivLu().solve(g_b);
 
         return g_projected;
     }
@@ -289,10 +290,10 @@ namespace
         for (const auto& s : samples)
         {
             fout << s.theta << ',' << s.x[0] << ',' << s.x[1] << ','
-                 << std::real(s.uinc) << ',' << std::imag(s.uinc) << ','
-                 << std::real(s.usca) << ',' << std::imag(s.usca) << ','
-                 << std::real(s.utot) << ',' << std::imag(s.utot) << ','
-                 << std::abs(s.utot) << '\n';
+                << std::real(s.uinc) << ',' << std::imag(s.uinc) << ','
+                << std::real(s.usca) << ',' << std::imag(s.usca) << ','
+                << std::real(s.utot) << ',' << std::imag(s.utot) << ','
+                << std::abs(s.utot) << '\n';
         }
     }
 
@@ -340,9 +341,9 @@ namespace
             sum_sq_abs_a += aa * aa;
 
             fout << a[i].theta << ','
-                 << std::real(a[i].usca) << ',' << std::imag(a[i].usca) << ','
-                 << std::real(b[i].usca) << ',' << std::imag(b[i].usca) << ','
-                 << ad << '\n';
+                << std::real(a[i].usca) << ',' << std::imag(a[i].usca) << ','
+                << std::real(b[i].usca) << ',' << std::imag(b[i].usca) << ','
+                << ad << '\n';
         }
 
         const Real rms_abs_diff = std::sqrt(sum_sq_abs_diff / static_cast<Real>(n));
@@ -355,6 +356,126 @@ namespace
     }
 } // namespace
 
+struct GridSample
+{
+    Real x = 0.0;
+    Real y = 0.0;
+    bool is_inside = false;
+    Cplx uinc = 0.0;
+    Cplx usca = 0.0;
+    Cplx utot = 0.0;
+};
+
+bool point_in_polygon_2d(const Mesh1D& mesh, const R3& p)
+{
+    bool inside = false;
+    const int nb_elt = NbElt(mesh);
+
+    for (int e = 0; e < nb_elt; ++e)
+    {
+        const Elt1D& elt = mesh[e];
+        const R3 a = elt[0];
+        const R3 b = elt[1];
+
+        const Real x1 = a[0];
+        const Real y1 = a[1];
+        const Real x2 = b[0];
+        const Real y2 = b[1];
+        const Real x = p[0];
+        const Real y = p[1];
+
+        const bool intersect =
+            ((y1 > y) != (y2 > y)) &&
+            (x < (x2 - x1) * (y - y1) / (y2 - y1 + 1.0e-30) + x1);
+
+        if (intersect)
+            inside = !inside;
+    }
+
+    return inside;
+}
+
+template <typename EvalScattered>
+std::vector<GridSample> sample_total_field_on_cartesian_grid(const Mesh1D& mesh,
+                                                             const EvalScattered& eval_scattered,
+                                                             Real xmin,
+                                                             Real xmax,
+                                                             Real ymin,
+                                                             Real ymax,
+                                                             int nx,
+                                                             int ny,
+                                                             Real kx,
+                                                             Real ky,
+                                                             bool exterior_only = true)
+{
+    std::vector<GridSample> samples;
+    samples.reserve(static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny));
+
+    for (int j = 0; j < ny; ++j)
+    {
+        const Real y = (ny == 1)
+                           ? 0.5 * (ymin + ymax)
+                           : ymin + (ymax - ymin) * static_cast<Real>(j) / static_cast<Real>(ny - 1);
+
+        for (int i = 0; i < nx; ++i)
+        {
+            const Real x = (nx == 1)
+                               ? 0.5 * (xmin + xmax)
+                               : xmin + (xmax - xmin) * static_cast<Real>(i) / static_cast<Real>(nx - 1);
+
+            R3 p;
+            p[0] = x;
+            p[1] = y;
+            p[2] = 0.0;
+
+            const bool inside = point_in_polygon_2d(mesh, p);
+
+            GridSample s;
+            s.x = x;
+            s.y = y;
+            s.is_inside = inside;
+
+            if (exterior_only && inside)
+            {
+                s.uinc = 0.0;
+                s.usca = 0.0;
+                s.utot = 0.0;
+            }
+            else
+            {
+                s.uinc = incident_plane_wave(p, kx, ky);
+                s.usca = eval_scattered(p);
+                s.utot = s.uinc + s.usca;
+            }
+
+            samples.push_back(s);
+        }
+    }
+
+    return samples;
+}
+
+void write_grid_samples_csv(const std::string& filename,
+                            const std::vector<GridSample>& samples)
+{
+    std::ofstream fout(filename);
+    fout << "x,y,is_inside,real_uinc,imag_uinc,real_usca,imag_usca,real_utot,imag_utot,abs_utot\n";
+
+    for (const auto& s : samples)
+    {
+        fout << s.x << ','
+            << s.y << ','
+            << (s.is_inside ? 1 : 0) << ','
+            << std::real(s.uinc) << ','
+            << std::imag(s.uinc) << ','
+            << std::real(s.usca) << ','
+            << std::imag(s.usca) << ','
+            << std::real(s.utot) << ','
+            << std::imag(s.utot) << ','
+            << std::abs(s.utot) << '\n';
+    }
+}
+
 int main(int argc, char* argv[])
 {
     constexpr bool do_tm_fk = true;
@@ -362,7 +483,7 @@ int main(int argc, char* argv[])
     constexpr bool do_te_fk = true;
     constexpr bool do_te_sk = true;
 
-    constexpr Real k0 = 2.0;
+    constexpr Real k0 = 4.0;
     constexpr Real eps = 1.0;
     constexpr Real mu = 1.0;
     constexpr Real Omega = 0.0; // stationary PEC benchmark
@@ -403,29 +524,34 @@ int main(int argc, char* argv[])
     const Eigen::MatrixXcd M_01 = assemble_biop_matrix(dof_p0, dof_p1, M_01_op, "Assembling M(P0xP1)");
     const Eigen::MatrixXcd M_11 = assemble_square_biop_matrix(dof_p1, M_11_op, "Assembling M(P1xP1)");
 
-    auto beta_inc_fun = [&](const R3& x) -> Cplx {
+    auto beta_inc_fun = [&](const R3& x) -> Cplx
+    {
         return dirichlet_trace_incident(x, kx, ky);
     };
 
-    auto gamma_inc_fun = [&](const R3& x) -> Cplx {
+    auto gamma_inc_fun = [&](const R3& x) -> Cplx
+    {
         return neumann_trace_incident_circle(x, kx, ky);
     };
 
-    const Eigen::VectorXcd beta_inc_p1 = L2WithP1Basis(beta_inc_fun, mesh, dof_p1);
-    const Eigen::VectorXcd gamma_inc_p0 = assemble_rhs_from_interpolation(mesh, dof_p0, M_00, gamma_inc_fun);
+    const Eigen::VectorXcd beta_inc_p1 = L2ProjectionToP1(beta_inc_fun, mesh, dof_p1, M_11);
+    //interpolate_to_dofs(mesh, dof_p1, beta_inc_fun);
+    const Eigen::VectorXcd gamma_inc_p0 = interpolate_to_dofs(mesh, dof_p0, gamma_inc_fun);
+    /*assemble_rhs_from_interpolation(mesh, dof_p0, M_00, gamma_inc_fun);
+       */
 
     Potential<RH_SL_2D_P0> sl_pot_p0(mesh, k0, eps, mu, Omega);
     Potential<RH_DL_2D_P1> dl_pot_p1(mesh, k0, eps, mu, Omega);
 
-    BIOp<RH_SL_2D_P1xP0> V(mesh, mesh, k0, eps, mu, Omega);      // P0 -> P1
-    BIOp<RH_DL_2D_P1xP1> K(mesh, mesh, k0, eps, mu, Omega);      // P1 -> P1
-    BIOp<RH_TDL_2D_P0xP0> Kp(mesh, mesh, k0, eps, mu, Omega);    // P0 -> P0
-    BIOp<RH_HS_2D_P0xP1> W(mesh, mesh, k0, eps, mu, Omega);      // P1 -> P0
+    BIOp<RH_SL_2D_P1xP0> V(mesh, mesh, k0, eps, mu, Omega); // P0 -> P1
+    BIOp<RH_DL_2D_P1xP1> K(mesh, mesh, k0, eps, mu, Omega); // P1 -> P1
+    BIOp<RH_TDL_2D_P0xP0> Kp(mesh, mesh, k0, eps, mu, Omega); // P0 -> P0
+    BIOp<RH_HS_2D_P0xP1> W(mesh, mesh, k0, eps, mu, Omega); // P1 -> P0
 
-    const Eigen::MatrixXcd V_mat  = assemble_biop_matrix(dof_p1, dof_p0, V,  "Assembling V(P1xP0)");
-    const Eigen::MatrixXcd K_mat  = assemble_biop_matrix(dof_p1, dof_p1, K,  "Assembling K(P1xP1)");
+    const Eigen::MatrixXcd V_mat = assemble_biop_matrix(dof_p1, dof_p0, V, "Assembling V(P1xP0)");
+    const Eigen::MatrixXcd K_mat = assemble_biop_matrix(dof_p1, dof_p1, K, "Assembling K(P1xP1)");
     const Eigen::MatrixXcd Kp_mat = assemble_biop_matrix(dof_p0, dof_p0, Kp, "Assembling Kp(P0xP0)");
-    const Eigen::MatrixXcd W_mat  = assemble_biop_matrix(dof_p0, dof_p1, W,  "Assembling W(P0xP1)");
+    const Eigen::MatrixXcd W_mat = assemble_biop_matrix(dof_p0, dof_p1, W, "Assembling W(P0xP1)");
 
     SolveResult tm_fk, tm_sk, te_fk, te_sk;
 
@@ -437,6 +563,12 @@ int main(int argc, char* argv[])
         tm_fk.A = V_mat;
         tm_fk.rhs = (0.5 * M_11 - K_mat) * beta_inc_p1;
         tm_fk.gamma_p0 = tm_fk.A.fullPivLu().solve(tm_fk.rhs);
+
+        Eigen::JacobiSVD<Eigen::MatrixXcd> svd(tm_fk.A);
+        const auto& s = svd.singularValues();
+
+        // Largest / smallest singular value
+        std::cout << "condition " << s(0) / s(s.size() - 1) << "s(0) = " << s(0) << "s(-1)" << s(s.size() - 1) << "\n";
 
         const Eigen::VectorXcd res = tm_fk.A * tm_fk.gamma_p0 - tm_fk.rhs;
         tm_fk.relative_bie_residual = res.norm() / std::max(tm_fk.rhs.norm(), Real(1.0e-30));
@@ -452,6 +584,12 @@ int main(int argc, char* argv[])
         tm_sk.rhs = W_mat * beta_inc_p1;
         tm_sk.gamma_p0 = tm_sk.A.fullPivLu().solve(tm_sk.rhs);
 
+        Eigen::JacobiSVD<Eigen::MatrixXcd> svd(tm_sk.A);
+        const auto& s = svd.singularValues();
+
+        // Largest / smallest singular value
+        std::cout << "condition " << s(0) / s(s.size() - 1) << "s(0) = " << s(0) << "s(-1)" << s(s.size() - 1) << "\n";
+
         const Eigen::VectorXcd res = tm_sk.A * tm_sk.gamma_p0 - tm_sk.rhs;
         tm_sk.relative_bie_residual = res.norm() / std::max(tm_sk.rhs.norm(), Real(1.0e-30));
         std::cout << "relative BIE residual (tm_sk) = " << tm_sk.relative_bie_residual << "\n";
@@ -465,6 +603,12 @@ int main(int argc, char* argv[])
         te_fk.A = W_mat;
         te_fk.rhs = (0.5 * M_00 + Kp_mat) * gamma_inc_p0;
         te_fk.beta_p1 = te_fk.A.fullPivLu().solve(te_fk.rhs);
+
+        Eigen::JacobiSVD<Eigen::MatrixXcd> svd(te_fk.A);
+        const auto& s = svd.singularValues();
+
+        // Largest / smallest singular value
+        std::cout << "condition " << s(0) / s(s.size() - 1) << "s(0) = " << s(0) << "s(-1)" << s(s.size() - 1) << "\n";
 
         const Eigen::VectorXcd res = te_fk.A * te_fk.beta_p1 - te_fk.rhs;
         te_fk.relative_bie_residual = res.norm() / std::max(te_fk.rhs.norm(), Real(1.0e-30));
@@ -480,6 +624,12 @@ int main(int argc, char* argv[])
         te_sk.rhs = V_mat * gamma_inc_p0;
         te_sk.beta_p1 = te_sk.A.fullPivLu().solve(te_sk.rhs);
 
+        Eigen::JacobiSVD<Eigen::MatrixXcd> svd(te_sk.A);
+        const auto& s = svd.singularValues();
+
+        // Largest / smallest singular value
+        std::cout << "condition " << s(0) / s(s.size() - 1) << "s(0) = " << s(0) << "s(-1)" << s(s.size() - 1) << "\n";
+
         const Eigen::VectorXcd res = te_sk.A * te_sk.beta_p1 - te_sk.rhs;
         te_sk.relative_bie_residual = res.norm() / std::max(te_sk.rhs.norm(), Real(1.0e-30));
         std::cout << "relative BIE residual (te_sk) = " << te_sk.relative_bie_residual << "\n";
@@ -488,7 +638,8 @@ int main(int argc, char* argv[])
     if (tm_fk.available)
     {
         const auto samples = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_tm_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                tm_fk, beta_inc_p1, x);
@@ -503,7 +654,8 @@ int main(int argc, char* argv[])
     if (tm_sk.available)
     {
         const auto samples = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_tm_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                tm_sk, beta_inc_p1, x);
@@ -518,7 +670,8 @@ int main(int argc, char* argv[])
     if (te_fk.available)
     {
         const auto samples = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_te_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                te_fk, gamma_inc_p0, x);
@@ -533,7 +686,8 @@ int main(int argc, char* argv[])
     if (te_sk.available)
     {
         const auto samples = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_te_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                te_sk, gamma_inc_p0, x);
@@ -548,7 +702,8 @@ int main(int argc, char* argv[])
     if (tm_fk.available && tm_sk.available)
     {
         const auto a = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_tm_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                tm_fk, beta_inc_p1, x);
@@ -556,7 +711,8 @@ int main(int argc, char* argv[])
             r_obs, n_obs, kx, ky);
 
         const auto b = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_tm_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                tm_sk, beta_inc_p1, x);
@@ -571,7 +727,8 @@ int main(int argc, char* argv[])
     if (te_fk.available && te_sk.available)
     {
         const auto a = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_te_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                te_fk, gamma_inc_p0, x);
@@ -579,7 +736,8 @@ int main(int argc, char* argv[])
             r_obs, n_obs, kx, ky);
 
         const auto b = sample_total_field_on_circle(
-            [&](const R3& x) {
+            [&](const R3& x)
+            {
                 return eval_te_scattered_field(sl_pot_p0, dl_pot_p1,
                                                mesh, dof_p0, dof_p1,
                                                te_sk, gamma_inc_p0, x);
@@ -590,6 +748,65 @@ int main(int argc, char* argv[])
                                  a, b, "pec_te_formulation_comparison_r2.csv");
         std::cout << "Wrote comparison to pec_te_formulation_comparison_r2.csv\n";
     }
+
+    const auto grid_tm_fk = sample_total_field_on_cartesian_grid(
+        mesh,
+        [&](const R3& x)
+        {
+            return eval_tm_scattered_field(sl_pot_p0, dl_pot_p1,
+                                           mesh, dof_p0, dof_p1,
+                                           tm_fk, beta_inc_p1, x);
+        },
+        -2.5, 2.5, -2.5, 2.5,
+        100, 100,
+        kx, ky,
+        true
+    );
+
+    write_grid_samples_csv("pec_tm_fk_grid_" + std::to_string(k0) + "_100x100.csv", grid_tm_fk);
+    std::cout << "Wrote grid samples to pec_tm_fk_grid_" + std::to_string(k0) + "_100x100.csv\n";
+
+    const auto grid_tm_sk = sample_total_field_on_cartesian_grid(
+    mesh,
+    [&](const R3& x) {
+        return eval_tm_scattered_field(sl_pot_p0, dl_pot_p1,
+                                       mesh, dof_p0, dof_p1,
+                                       tm_sk, beta_inc_p1, x);
+    },
+    -2.5, 2.5, -2.5, 2.5,
+    100, 100,
+    kx, ky,
+    true
+);
+    write_grid_samples_csv("pec_tm_sk_grid_" + std::to_string(k0) + "_100x100.csv", grid_tm_sk);
+
+    const auto grid_te_fk = sample_total_field_on_cartesian_grid(
+        mesh,
+        [&](const R3& x) {
+            return eval_te_scattered_field(sl_pot_p0, dl_pot_p1,
+                                           mesh, dof_p0, dof_p1,
+                                           te_fk, gamma_inc_p0, x);
+        },
+        -2.5, 2.5, -2.5, 2.5,
+        100, 100,
+        kx, ky,
+        true
+    );
+    write_grid_samples_csv("pec_te_fk_grid_" + std::to_string(k0) + "_100x100.csv", grid_te_fk);
+
+    const auto grid_te_sk = sample_total_field_on_cartesian_grid(
+        mesh,
+        [&](const R3& x) {
+            return eval_te_scattered_field(sl_pot_p0, dl_pot_p1,
+                                           mesh, dof_p0, dof_p1,
+                                           te_sk, gamma_inc_p0, x);
+        },
+        -2.5, 2.5, -2.5, 2.5,
+        100, 100,
+        kx, ky,
+        true
+    );
+    write_grid_samples_csv("pec_te_sk_grid_" + std::to_string(k0) + "_100x100.csv", grid_te_sk);
 
     return 0;
 }

@@ -556,7 +556,7 @@ namespace
     {
         std::ofstream fout(filename);
         fout <<
-            "x,y,is_inside,is_skipped,real_uinc,imag_uinc,real_usca,imag_usca,real_utr,imag_utr,real_utot,imag_utot,abs_utot\n";
+            "x,y,real_uinc,imag_uinc,real_usca,imag_usca,real_utr,imag_utr,real_utot,imag_utot,abs_utot\n";
 
         for (const auto& s : samples)
         {
@@ -877,6 +877,12 @@ int main(int argc, char* argv[])
 
     sol.A = make_block_2x2(A11, A12, A21, A22);
     sol.rhs = make_block_rhs(f_inc, -g_inc);
+
+    Eigen::JacobiSVD<Eigen::MatrixXcd> svd(sol.A);
+    const auto& s = svd.singularValues();
+
+    // Largest / smallest singular value
+    std::cout << "condition " << s(0) / s(s.size() - 1) << "s(0) = " << s(0) << "s(-1)" << s(s.size() - 1) << "\n";
 
     std::cout << "solving system\n";
     const Eigen::VectorXcd x = sol.A.fullPivLu().solve(sol.rhs);
