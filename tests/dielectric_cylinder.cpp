@@ -883,6 +883,7 @@ int main(int argc, char* argv[])
 
     // Largest / smallest singular value
     std::cout << "condition " << s(0) / s(s.size() - 1) << "s(0) = " << s(0) << "s(-1)" << s(s.size() - 1) << "\n";
+    std::exit(0);
 
     std::cout << "solving system\n";
     const Eigen::VectorXcd x = sol.A.fullPivLu().solve(sol.rhs);
