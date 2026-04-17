@@ -1,16 +1,14 @@
 import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
+import sys
 
 
 
 choices=["uinc", "usca", "utr", "utot"]
 
-# csv_file = "../cmake-build-release/dielectric_grid_k0_3p000000ep00_Omega_1p000000em03.csv"
-# csv_file = "../cmake-build-release/pec_tm_fk_grid_100x100.csv"
-# csv_file = "../cmake-build-release/pec_tm_sk_grid_100x100.csv"
-# csv_file = "../cmake-build-release/pec_te_fk_grid_100x100.csv"
-# csv_file = "../cmake-build-release/pec_te_sk_grid_100x100.csv"
+csv_file = sys.argv[1]
+
 field = "utot"
 
 df = pd.read_csv(csv_file)
