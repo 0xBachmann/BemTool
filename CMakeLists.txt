@@ -26,47 +26,7 @@ link_libraries(Eigen3::Eigen)
 
 add_executable(test2D test2D.cpp)
 add_executable(test3D test3D.cpp)
-add_executable(cylinder2D cylinder2d.cpp)
-#add_executable(scatter_TE_PEC_two_trace scatter_TE_PEC_two_trace.cpp)
 
-add_executable(rotating_dielectric_scatter tests/rotating_dielectric_scatter_2D.cpp)
-add_executable(rotating_dielectric_scatter_fast tests/rotating_dielectric_scatter_2D_fast.cpp)
-#add_executable(pec_cylinder_te_sl tests/pec_cylinder_te_single_layer.cpp)
-#add_executable(pec_cylinder_tm_dl tests/pec_cylinder_tm_double_layer.cpp)
-add_executable(pec_cylinder tests/pec_combined_tmfk_tesk.cpp)
-add_executable(dielectric_cylinder tests/dielectric_cylinder.cpp)
+add_executable(pec_cylinder rotation/pec_cylinder.cpp)
+add_executable(dielectric_cylinder rotation/dielectric_cylinder.cpp)
 
-
-
-# -----------------------
-# GoogleTest (FetchContent)
-# -----------------------
-FetchContent_Declare(
-        googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-)
-# For Windows: prevent overriding parent project compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
-
-enable_testing()
-
-add_executable(rh_converges_to_he
-        tests/rh_converges_to_he.cpp
-)
-
-target_link_libraries(rh_converges_to_he
-        GTest::gtest_main
-)
-
-add_executable(rh_potential_converges_to_he
-        tests/rh_potential_converges_to_he.cpp
-)
-
-target_link_libraries(rh_potential_converges_to_he
-        GTest::gtest_main
-)
-
-
-include(GoogleTest)
-gtest_discover_tests(rh_converges_to_he rh_potential_converges_to_he)
