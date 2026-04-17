@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib import cm
+from matplotlib.lines import Line2D
 
 plt.rc('text', usetex=True)
 plt.rc('text.latex', preamble=r'\usepackage{amsmath}')
@@ -26,9 +27,13 @@ sns.set_theme(
         "xtick.top": True,
         "ytick.right": True,
         "legend.frameon": False,
+        "font.size": 18,
+        "axes.titlesize": 18,
+        "axes.labelsize": 17,
+        "xtick.labelsize": 14,
+        "ytick.labelsize": 14,
     },
 )
-
 
 TAG_RE = re.compile(
     r"dielectric_grid_k0_(?P<k0>[pm]?\d+p\d+e[pm]\d+)_Omega_(?P<omega>[pm]?\d+p\d+e[pm]\d+)\.csv$"
@@ -102,6 +107,17 @@ def maxabs(z: np.ndarray) -> float:
     return np.max(np.abs(z))
 
 
+def folder_label(folder: Path) -> str:
+    name = folder.name
+    if name == "n1":
+        return r"$n_i=1$"
+    if name == "n1.5":
+        return r"$n_i=1.5$"
+    if name.startswith("n"):
+        return rf"$n_i={name[1:]}$"
+    return name
+
+
 def collect_scalings(folder: Path, ks=None, field="utot") -> pd.DataFrame:
     index_df = scan_files(folder)
     if len(index_df) == 0:
@@ -115,7 +131,7 @@ def collect_scalings(folder: Path, ks=None, field="utot") -> pd.DataFrame:
     for k0 in ks:
         path0 = find_path(index_df, k0, 0.0)
         if path0 is None:
-            print(f"Skipping k={k0:g}: missing Omega=0 file")
+            print(f"Skipping {folder}, k={k0:g}: missing Omega=0 file")
             continue
 
         df0 = load_field(path0, field=field)
@@ -129,7 +145,7 @@ def collect_scalings(folder: Path, ks=None, field="utot") -> pd.DataFrame:
             pathm = find_path(index_df, k0, -omega)
 
             if pathp is None or pathm is None:
-                print(f"Skipping k={k0:g}, omega={omega:.1e}: missing ±Omega pair")
+                print(f"Skipping {folder}, k={k0:g}, omega={omega:.1e}: missing ±Omega pair")
                 continue
 
             dfp = load_field(pathp, field=field)
@@ -137,7 +153,7 @@ def collect_scalings(folder: Path, ks=None, field="utot") -> pd.DataFrame:
 
             merged = common_merge(dfp, dfm, df0)
             if len(merged) == 0:
-                print(f"Skipping k={k0:g}, omega={omega:.1e}: no common grid points")
+                print(f"Skipping {folder}, k={k0:g}, omega={omega:.1e}: no common grid points")
                 continue
 
             up = merged["u_p"].to_numpy()
@@ -153,6 +169,8 @@ def collect_scalings(folder: Path, ks=None, field="utot") -> pd.DataFrame:
 
             rows.append(
                 {
+                    "folder": folder.name,
+                    "folder_label": folder_label(folder),
                     "k0": k0,
                     "omega": omega,
                     "npts": len(merged),
@@ -163,7 +181,7 @@ def collect_scalings(folder: Path, ks=None, field="utot") -> pd.DataFrame:
                 }
             )
 
-    return pd.DataFrame(rows).sort_values(["k0", "omega"])
+    return pd.DataFrame(rows).sort_values(["folder", "k0", "omega"])
 
 
 def make_k_colors(k_values):
@@ -171,7 +189,6 @@ def make_k_colors(k_values):
     if len(k_values) == 0:
         return {}
 
-    # truncated viridis: avoid bright yellow end
     base = cm.get_cmap("viridis")
     vals = np.linspace(0.08, 0.78, max(len(k_values), 2))
     palette = [base(v) for v in vals]
@@ -196,19 +213,27 @@ def plot_quantity(df: pd.DataFrame, quantity: str, ylabel: str, slope_power: int
     fig, ax = plt.subplots(figsize=(8, 5.5), constrained_layout=True)
 
     ks = sorted(df["k0"].unique())
-    colors = make_k_colors(ks)
+    folders = list(dict.fromkeys(df["folder"].tolist()))
 
-    for k0 in ks:
-        sub = df[df["k0"] == k0].sort_values("omega")
-        ax.loglog(
-            sub["omega"],
-            sub[quantity],
-            marker="o",
-            linewidth=2.0,
-            markersize=5.5,
-            color=colors[k0],
-            label=fr"$k={k0:g}$",
-        )
+    colors = make_k_colors(ks)
+    linestyles = ["-", "--", "-.", ":"]
+    folder_to_ls = {folder: linestyles[i % len(linestyles)] for i, folder in enumerate(folders)}
+
+    for folder in folders:
+        for k0 in ks:
+            sub = df[(df["folder"] == folder) & (df["k0"] == k0)].sort_values("omega")
+            if len(sub) == 0:
+                continue
+
+            ax.loglog(
+                sub["omega"],
+                sub[quantity],
+                marker="o",
+                linewidth=2.0,
+                markersize=5.5,
+                color=colors[k0],
+                linestyle=folder_to_ls[folder],
+            )
 
     positive = df[df[quantity] > 0].sort_values("omega")
     if len(positive) > 0:
@@ -224,7 +249,30 @@ def plot_quantity(df: pd.DataFrame, quantity: str, ylabel: str, slope_power: int
     ax.set_xlabel(r"$\Omega$")
     ax.set_ylabel(ylabel)
     ax.grid(True, which="both", linestyle=":")
-    ax.legend()
+
+    # Legend 1: colors = k
+    color_handles = [
+        Line2D([0], [0], color=colors[k0], lw=2.0, marker="o", markersize=5.5, label=rf"$k={k0:g}$")
+        for k0 in ks
+    ] + [Line2D([0], [0], color="black", lw=1.5, linestyle=":", label=slope_label)]
+    leg1 = ax.legend(handles=color_handles, loc="upper left")
+    ax.add_artist(leg1)
+
+    # Legend 2: linestyles = refractive index
+    folder_handles = [
+        Line2D(
+            [0], [0],
+            color="black",
+            lw=2.0,
+            linestyle=folder_to_ls[folder],
+            label=df[df["folder"] == folder]["folder_label"].iloc[0],
+        )
+        for folder in folders
+    ]
+    leg2 = ax.legend(handles=folder_handles, loc="lower right")
+    ax.add_artist(leg2)
+
+    # Legend 3: slope
 
     outpath.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(outpath, dpi=220)
@@ -233,7 +281,7 @@ def plot_quantity(df: pd.DataFrame, quantity: str, ylabel: str, slope_power: int
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--folder", type=Path, default=Path("."))
+    parser.add_argument("--folders", type=Path, nargs="+", required=True)
     parser.add_argument("--field", type=str, default="utot", choices=["uinc", "usca", "utr", "utot"])
     parser.add_argument("--k", type=float, nargs="*", default=None)
     parser.add_argument("--csv-out", type=Path, default=Path("evenodd_scalings.csv"))
@@ -241,7 +289,11 @@ def main():
     parser.add_argument("--even-plot-out", type=Path, default=Path("even_scaling_all_k.pdf"))
     args = parser.parse_args()
 
-    df = collect_scalings(args.folder, ks=args.k, field=args.field)
+    dfs = []
+    for folder in args.folders:
+        dfs.append(collect_scalings(folder, ks=args.k, field=args.field))
+
+    df = pd.concat(dfs, ignore_index=True)
     if len(df) == 0:
         raise RuntimeError("No valid k/omega data collected.")
 
@@ -270,4 +322,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python plotting_scaling.py --folder n1.5 --k 1 2 3 4 5 6 7 8 9 10
+# python plotting_scaling.py --folders n1 n1.5 --k 1 2 3 4 5 6 7 8 9 10

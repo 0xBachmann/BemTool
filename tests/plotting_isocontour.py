@@ -24,6 +24,13 @@ sns.set_theme(
         "axes.linewidth": 0.8,
         "xtick.direction": "in",
         "ytick.direction": "in",
+        "font.size": 18,
+        "axes.titlesize": 18,
+        "axes.labelsize": 17,
+        "xtick.labelsize": 14,
+        "ytick.labelsize": 14,
+        "font.family": "serif",
+        "font.serif": ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"],
     },
 )
 
@@ -96,12 +103,17 @@ def add_cylinder(ax, radius=1.0):
     ax.plot(radius * np.cos(t), radius * np.sin(t), "k-", linewidth=1.0)
 
 
+def folder_label(folder: Path) -> str:
+    name = folder.name
+    if name.startswith("n"):
+        return rf"$n_i={name[1:]}$"
+    return name
+
+
 def omega_label(omega: float) -> str:
     if np.isclose(omega, 0.0):
         return r"$\Omega=0$"
-    exp = int(np.log10(abs(omega)))
-    sign = "-" if omega < 0.0 else ""
-    return rf"$\Omega={sign}10^{{{exp}}}$"
+    return rf"$\Omega={omega:.2f}$" if not np.isclose(abs(omega), 0.1) else rf"$\Omega={omega:.1f}$"
 
 
 def style_for_omega(omega: float):
@@ -109,6 +121,18 @@ def style_for_omega(omega: float):
         return "-"
     return "-" if omega > 0 else "--"
 
+def masked_triangulation_crossing_circle(x, y, radius=1.0, eps=1e-6):
+    tri = mtri.Triangulation(x, y)
+    tris = tri.triangles
+
+    r = np.sqrt(x**2 + y**2)
+    rtri = r[tris]
+
+    # Only mask triangles that straddle the boundary
+    crosses_boundary = (rtri.min(axis=1) < radius - eps) & (rtri.max(axis=1) > radius + eps)
+
+    tri.set_mask(crosses_boundary)
+    return tri
 
 def expand_omegas(nonnegative_omegas):
     vals = set()
@@ -122,17 +146,60 @@ def expand_omegas(nonnegative_omegas):
             vals.add(float(-w))
     return sorted(vals)
 
+def style_axis(ax, i, j, folder, nrows, ncols, ks):
+    ax.set_aspect("equal")
+    ax.grid(False)
+    ax.margins(0.0)
+    ax.set_xlim(-2.0, 2.0)
+    ax.set_ylim(-2.0, 2.0)
 
+    if j == ncols - 1:
+        ax.set_xticks([-2, -1, 0, 1, 2])
+    else:
+        ax.set_xticks([-2, -1, 0, 1])
+
+    if i == 0:
+        ax.set_yticks([-2, -1, 0, 1, 2])
+    else:
+        ax.set_yticks([-2, -1, 0, 1])
+
+    if i != nrows - 1:
+        ax.tick_params(axis="x", labelbottom=False)
+    if j != 0:
+        ax.tick_params(axis="y", labelleft=False)
+
+    ax.tick_params(
+        top=False,
+        right=False,
+        bottom=True,
+        left=True,
+        length=3,
+        width=0.8,
+        pad=1,
+    )
+
+    if i == 0:
+        ax.set_title(rf"$k={ks[j]:g}$", pad=4)
+
+    if j == 0:
+        ax.set_ylabel(folder_label(folder) + "\n" + r"$y$", labelpad=2)
+    else:
+        ax.set_ylabel("")
+
+    if i == nrows - 1:
+        ax.set_xlabel(r"$x$", labelpad=2)
+    else:
+        ax.set_xlabel("")
 def build_abs_groups(omegas):
     return sorted({abs(w) for w in omegas})
+
 
 def color_map_for_abs_omegas(abs_omegas):
     if len(abs_omegas) == 0:
         return {}
 
-    # truncate viridis to avoid the bright yellow end
     base = cm.get_cmap("viridis")
-    vals = np.linspace(0., 0.9, max(len(abs_omegas), 2))
+    vals = np.linspace(0.0, 0.9, max(len(abs_omegas), 2))
     palette = [base(v) for v in vals]
 
     if len(abs_omegas) == 1:
@@ -152,104 +219,134 @@ def compute_reference_level(index_df: pd.DataFrame, k0: float, level_pct: float,
     return level, max_u0
 
 
-def plot_single_isocontour_overlay(
-    folder: Path,
-    k0: float,
+def plot_isocontour_matrix_overlay(
+    folders,
+    ks,
     nonnegative_omegas,
     level_pct: float,
     field: str = "utot",
     outdir: Path = Path("plots"),
-    outfile: str | None = None,
+    outfile: str = "isocontour_overlay_matrix.pdf",
 ):
-    index_df = scan_files(folder)
-    if len(index_df) == 0:
-        raise RuntimeError(f"No matching files found in {folder}")
-
+    folders = [Path(f) for f in folders]
+    ks = list(ks)
     omegas = expand_omegas(nonnegative_omegas)
 
-    outdir.mkdir(parents=True, exist_ok=True)
+    nrows = len(folders)
+    ncols = len(ks)
 
-    level, max_u0 = compute_reference_level(index_df, k0, level_pct, field)
-
-    if outfile is None:
-        outfile = f"isocontour_overlay_k{k0:g}_pct{level_pct:g}_{field}.pdf"
-    outpath = outdir / outfile
-
-    fig, ax = plt.subplots(figsize=(6.8, 6.2), constrained_layout=True)
+    if nrows == 0 or ncols == 0:
+        raise RuntimeError("Please provide at least one folder and one k.")
 
     abs_omegas = build_abs_groups(omegas)
     colors = color_map_for_abs_omegas(abs_omegas)
 
-    drawn_labels = set()
-    drawn_any = False
-
-    for omega in omegas:
-        path = find_path(index_df, k0, omega)
-        if path is None:
-            print(f"Missing file for k={k0:g}, Omega={omega:.3e}")
-            continue
-
-        df = load_abs_field(path, field=field)
-        x = df["x"].to_numpy()
-        y = df["y"].to_numpy()
-        z = df["z"].to_numpy()
-
-        zmin = np.min(z)
-        zmax = np.max(z)
-        if not (zmin <= level <= zmax):
-            print(
-                f"Skipping Omega={omega:.3e}: contour level {level:.6g} "
-                f"outside data range [{zmin:.3g}, {zmax:.3g}]"
-            )
-            continue
-
-        color = colors[abs(omega)]
-        linestyle = style_for_omega(omega)
-
-        tri = mtri.Triangulation(x, y)
-        cs = ax.tricontour(
-            tri,
-            z,
-            levels=[level],
-            colors=[color],
-            linewidths=2.0,
-            linestyles=[linestyle],
-        )
-
-        if len(cs.allsegs[0]) > 0:
-            drawn_any = True
-            label = omega_label(omega)
-            if label not in drawn_labels:
-                ax.plot([], [], color=color, linestyle=linestyle, linewidth=2.0, label=label)
-                drawn_labels.add(label)
-
-    add_cylinder(ax, radius=1.0)
-
-    ax.set_aspect("equal")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_title(
-        rf"$|u_{{{field[1:]}}}| = {level_pct:g}\%\max |u_0|$ for $k={k0:g}$"
+    fig = plt.figure(figsize=(3.0 * ncols, 3.0 * nrows + 1.45))
+    gs = fig.add_gridspec(
+        nrows=nrows,
+        ncols=ncols,
+        wspace=0.0,
+        hspace=0.0,
     )
-    ax.grid(True, linestyle=":", alpha=0.5)
 
-    if drawn_any:
-        ax.legend()
-    else:
-        ax.text(
-            0.5, 0.5, "No contours drawn",
-            transform=ax.transAxes, ha="center", va="center"
+    axes = np.empty((nrows, ncols), dtype=object)
+
+    for i, folder in enumerate(folders):
+        index_df = scan_files(folder)
+        if len(index_df) == 0:
+            raise RuntimeError(f"No matching files found in {folder}")
+
+        for j, k0 in enumerate(ks):
+            ax = fig.add_subplot(gs[i, j])
+            axes[i, j] = ax
+
+            try:
+                level, max_u0 = compute_reference_level(index_df, k0, level_pct, field)
+            except RuntimeError as e:
+                ax.text(0.5, 0.5, str(e), transform=ax.transAxes,
+                        ha="center", va="center")
+                ax.set_axis_off()
+                continue
+
+            drawn_labels = set()
+            drawn_any = False
+
+            for omega in omegas:
+                path = find_path(index_df, k0, omega)
+                if path is None:
+                    continue
+
+                df = load_abs_field(path, field=field)
+                x = df["x"].to_numpy()
+                y = df["y"].to_numpy()
+                z = df["z"].to_numpy()
+
+                zmin = np.min(z)
+                zmax = np.max(z)
+                if not (zmin <= level <= zmax):
+                    continue
+
+                color = colors[abs(omega)]
+                linestyle = style_for_omega(omega)
+
+                tri = masked_triangulation_crossing_circle(x, y, radius=1.0, eps=0)
+                # tri = mtri.Triangulation(x, y)
+                cs = ax.tricontour(
+                    tri,
+                    z,
+                    levels=[level],
+                    colors=[color],
+                    linewidths=2.0,
+                    linestyles=[linestyle],
+                )
+
+                if len(cs.allsegs[0]) > 0:
+                    drawn_any = True
+                    label = omega_label(omega)
+                    if label not in drawn_labels and i == 0 and j == 0:
+                        ax.plot([], [], color=color, linestyle=linestyle,
+                                linewidth=2.0, label=label)
+                        drawn_labels.add(label)
+
+            add_cylinder(ax, radius=1.0)
+            style_axis(ax, i, j, folder, nrows, ncols, ks)
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
+        fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            ncol=min(len(handles), 4),
+            frameon=False,
+            bbox_to_anchor=(0.5, 0.94),
         )
 
-    fig.savefig(outpath, dpi=220)
+    fig.suptitle(
+        rf"Isocontours of $|u^{{\mathrm{{{field}}}}}| = {level_pct:g}\%\max |u_0|$",
+        y=0.985,
+    )
+
+    fig.subplots_adjust(
+        left=0.05,
+        right=0.98,
+        bottom=0.07,
+        top=0.82,
+        wspace=0.0,
+        hspace=0.0,
+    )
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    outpath = outdir / outfile
+    fig.savefig(outpath, dpi=220, bbox_inches="tight", pad_inches=0)
     plt.close(fig)
     print(f"Wrote {outpath}")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--folder", type=Path, default=Path("."))
-    parser.add_argument("--k", type=float, required=True)
+    parser.add_argument("--folders", type=Path, nargs="+", required=True)
+    parser.add_argument("--k", type=float, nargs="+", required=True)
     parser.add_argument(
         "--omega",
         type=float,
@@ -259,24 +356,21 @@ def main():
     )
     parser.add_argument("--level-pct", type=float, default=50.0,
                         help="Contour level as percentage of max|u_0| for this k")
-    parser.add_argument("--field", type=str, default="utot", choices=["uinc", "usca", "utr", "utot"])
+    parser.add_argument("--field", type=str, default="utot",
+                        choices=["uinc", "usca", "utr", "utot"])
     parser.add_argument("--outdir", type=Path, default=Path("plots"))
-    parser.add_argument("--outfile", type=str, default=None)
     args = parser.parse_args()
 
-    plot_single_isocontour_overlay(
-        folder=args.folder,
-        k0=args.k,
+    plot_isocontour_matrix_overlay(
+        folders=args.folders,
+        ks=args.k,
         nonnegative_omegas=args.omega,
         level_pct=args.level_pct,
         field=args.field,
         outdir=args.outdir,
-        outfile=args.outfile,
+        outfile=f"isocontour_overlay_matrix_{args.level_pct}.pdf",
     )
 
 
 if __name__ == "__main__":
     main()
-
-
-#python plotting_isocontour.py --folder n1.5 --k 3 --omega 0 1e-4 1e-3 1e-2 1e-1 --level-pct 50
