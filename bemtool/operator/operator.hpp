@@ -40,7 +40,8 @@ namespace bemtool
     SL_OP, // trace dirichlet du simple couche
     DL_OP, // trace dirichlet du double couche
     TDL_OP, // trace neumann   du simple couche
-    HS_OP // trace neumann   du double couche
+    HS_OP, // trace neumann   du double couche
+    HS_OP_WEAK // trace neumann   du double couche weak form
   };
 
   template <typename KernelType>

@@ -187,7 +187,7 @@ TEST(RotatingFastVsHelmholtz, HypersingularLayerMatchesAtZeroOmega)
 
 
     BIOp<HE_HS_2D_P1xP1> H(mesh, mesh, k0);
-    BIOp<RH_HS_2D_P1xP1> R(mesh, mesh, k0, eps, mu, Omega);
+    BIOp<RH_HS_WEAK_2D_P1xP1> R(mesh, mesh, k0, eps, mu, Omega); // only matching weak form
 
     const Eigen::MatrixXcd A_he = assemble_biop_matrix(dof, dof, H, "helmholtz");
     const Eigen::MatrixXcd A_rh = assemble_biop_matrix(dof, dof, R, "rotating helmholtz");
