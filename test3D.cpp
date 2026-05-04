@@ -52,7 +52,7 @@ struct Test{
       }
     }
 
-    Cplx refsol = RefSol<OperatorType>::Compute(n,1.,kappa);
+    Cplx refsol = RefEigenvalue<OperatorType>::Compute(n,1.,kappa);
     std::cout << "Erreur relative:\t";
     std::cout << 100*abs(sum - refsol)/abs(refsol) << " %" << std::endl;
   }
