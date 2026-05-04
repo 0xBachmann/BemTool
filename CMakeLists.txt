@@ -6,18 +6,6 @@ include_directories(bemtool)
 
 file(COPY mesh DESTINATION ${CMAKE_BINARY_DIR})
 
-
-include(FetchContent)
-# -----------------------
-# Complex Bessel (FetchContent)
-# -----------------------
-FetchContent_Declare(
-        complex_bessel
-        GIT_REPOSITORY https://github.com/joeydumont/complex_bessel.git
-)
-FetchContent_MakeAvailable(complex_bessel)
-link_libraries(complex_bessel::complex_bessel)
-
 find_package(MPI REQUIRED)
 link_libraries(MPI::MPI_CXX)
 
@@ -29,4 +17,8 @@ add_executable(test3D test3D.cpp)
 
 add_executable(pec_cylinder rotation/pec_cylinder.cpp)
 add_executable(dielectric_cylinder rotation/dielectric_cylinder.cpp)
+
+
+enable_testing()
+add_subdirectory(tests)
 
