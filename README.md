@@ -11,13 +11,10 @@ In particular, this repository was used to produce the numerical results for:
 - scattering by a **PEC cylinder**
 - scattering by a **dielectric cylinder**
 - comparison between the **stationary** and **rotating** cases
-
-as discussed in the thesis chapters on the rotating cylinder test cases.
-
 ## Main additions
 
 The main implementation relevant to the rotating-medium model is contained in the following files:
-
+TODO fast refers to taking steinbergs approximation instead of a truncated sum
 - `bemtool/potential/rotating_helmholtz_fast_pot.hpp`
 - `bemtool/operator/rotating_helmholtz_fast_op.hpp`
 
@@ -27,23 +24,23 @@ These files implement the **Green's function of a rotating medium** and the asso
 G_{\mathrm{sc}} \approx G_0 \exp\!\left(i\,\frac{\Omega}{nc}\,\hat{k}\,(\mathbf r \times \mathbf r')\right),
 \]
 
-together with the corresponding reversed-rotation kernel where the sign of \(\Omega\) is flipped.
+together with the corresponding reversed-rotation kernel where the sign of \(\Omega\) is flipped. This matches the thesis goal of introducing a rotation-aware Green kernel as a first-order correction to the standard Helmholtz kernel. :contentReference[oaicite:0]{index=0}
 
-These two files are the main entry points if you want to understand how the rotating kernel is plugged into BemTool's usual operator and potential framework.
+In the code, this rotating Helmholtz kernel is identified by the tag `RH` (for **Rotating Helmholtz**). The same tag is used consistently for both potentials and boundary integral operators.
 
-## Relation to the thesis
+A few convenient typedefs / aliases are introduced so the rotating kernel can be used in the same style as the standard BEMTool kernels. In particular, the potential file provides aliases such as
 
-This code accompanies the thesis *Boundary Element Method for Electromagnetic Scattering from Rotating Bodies*. The mathematical model, boundary integral formulation, and the test problems implemented here are derived in the thesis, in particular:
+- `RH_SL_2D_P0`, ... for the rotating single-layer potential,
+- `RH_DL_2D_P1`, ... for the rotating double-layer potential,
 
-- the reduced scalar rotating equation and its Green's function
-- the boundary integral operators built from the modified kernel
-- the PEC exterior problem
-- the dielectric transmission problem
-- the Galerkin discretization in BemTool
-- the rotating-cylinder numerical tests
+while the operator file introduces aliases such as
 
-The repository should therefore be read together with the thesis if the analytical background is needed.
+- `RH_SL_2D_P1xP0`, ... for the single-layer operator,
+- `RH_DL_2D_P1xP1`, ... for the double-layer operator,
+- `RH_TDL_2D_P0xP0`, ... for the "adjoint" double-layer operator,
+- `RH_HS_2D_P0xP1`, ... for the hypersingular operator.
 
+This makes it possible to swap the stationary Helmholtz kernel for the rotating one with only minimal changes at the assembly level, while keeping the surrounding BEMTool workflow unchanged.
 ## Repository structure
 
 A simplified overview of the relevant structure is:
@@ -51,25 +48,15 @@ A simplified overview of the relevant structure is:
     .
     ├── bemtool
     │   ├── operator
-    │   │   ├── rotating_helmholtz_fast_op.hpp
-    │   │   ├── rotating_helmholtz_op.hpp
-    │   │   ├── rotating_helmholtz_singrem_op.hpp
-    │   │   └── rotating_helmholtz_singrem_real_op.hpp
+    │   │   └── rotating_helmholtz_fast_op.hpp
     │   ├── potential
-    │   │   ├── rotating_helmholtz_fast_pot.hpp
-    │   │   ├── rotating_helmholtz_singrem_pot.hpp
-    │   │   └── rotating_helmholtz_singrem_real_pot.hpp
+    │   │   └── rotating_helmholtz_fast_pot.hpp
     │   └── ...
     ├── rotation
     │   ├── dielectric_cylinder.cpp
     │   ├── pec_cylinder.cpp
     │   ├── helpers.hpp
-    │   ├── plot.py
-    │   ├── plotting_isocontour.py
-    │   ├── plotting_pec.py
-    │   ├── plotting_results.py
-    │   ├── plotting_scaling.py
-    │   └── plotting_stationary.py
+    │   └── ...
     ├── CMakeLists.txt
     └── README.md
 
@@ -79,37 +66,15 @@ The directory `rotation/` contains the example programs and plotting scripts use
 
 ### `rotation/pec_cylinder.cpp`
 
-Implements the **PEC cylinder** scattering tests. This corresponds to the exterior boundary-value problem discussed in the thesis for the perfectly conducting cylinder. Depending on the polarization and formulation, the code solves Dirichlet- or Neumann-type boundary integral equations and evaluates the scattered and total fields.
+Implements the **PEC cylinder** scattering tests. This corresponds to the exterior boundary-value problem discussed in Section 3.6 of the thesis for the perfectly conducting cylinder. Depending on the polarization and formulation, the code solves Dirichlet- or Neumann-type boundary integral equations and evaluates the scattered and total fields.
 
 ### `rotation/dielectric_cylinder.cpp`
 
-Implements the **dielectric cylinder** transmission tests. This corresponds to the coupled interior-exterior problem in which the interface conditions connect the traces across the boundary.
+Implements the **dielectric cylinder** transmission tests. This corresponds to the coupled interior-exterior problem in which the interface conditions connect the traces across the boundary, discussed Section 3.7.
 
 ### Plotting scripts
 
 The Python files in `rotation/` were used to post-process the field data and generate the numerical plots shown in the thesis, including stationary and rotating comparisons, scaling studies, and isocontours.
-
-## Older experimental files
-
-Besides the `fast` rotating implementation, the repository also contains older prototype files such as
-
-- `rotating_helmholtz_op.hpp`
-- `rotating_helmholtz_singrem_op.hpp`
-- `rotating_helmholtz_singrem_real_op.hpp`
-- `rotating_helmholtz_singrem_pot.hpp`
-- `rotating_helmholtz_singrem_real_pot.hpp`
-
-These belong to earlier implementation attempts and experiments. In particular, some of them follow older ideas based more directly on **Fourier-expansion-style constructions** rather than the final fast Green-function implementation used for the numerical results. They are kept for reference and comparison, but the files with the `fast` suffix are the relevant ones for reproducing the thesis computations.
-
-## Connection to the equations in the thesis
-
-This fork is intended as the implementation counterpart of the reduced rotating BEM formulation developed in the thesis. At a high level, the mapping is:
-
-- **Chapter 2**: derivation of the rotating reduced scalar operator and its Green's function
-- **Chapter 3**: layer potentials, boundary integral operators, and Galerkin discretization
-- **Chapter 4**: numerical experiments for PEC and dielectric cylinders
-
-The code in `bemtool/operator` and `bemtool/potential` corresponds to the kernel and operator level, while the code in `rotation/` corresponds to the concrete test problems and numerical experiments built from those operators.
 
 ## Building
 
@@ -124,10 +89,43 @@ cmake ..
 make -j
 ```
 
-Depending on your environment, you may also need Eigen and the usual dependencies required by BemTool.
+Depending on your environment, you may also need Eigen, Boost and the usual dependencies required by BemTool.
 
-## Notes
 
-- This repository is a **research codebase** used for a master's thesis.
-- The focus is on the reduced scalar rotating model for cylindrical geometries.
-- The implementation is primarily a **proof of concept** for the boundary element treatment of the rotating kernel, rather than a polished general-purpose package.
+In the non-rotating limit, the rotating Helmholtz kernel reduces to
+\[
+G_{\mathrm{rot},0}(x,y)
+=
+\frac{1}{4i}H_0^{(1)}(\kappa |x-y|)
+=
+-\frac{i}{4}H_0^{(1)}(\kappa |x-y|)
+=
+-\,G_{\mathrm{BT}}(x,y),
+\]
+where BemTool's Helmholtz implementation uses
+\[
+G_{\mathrm{BT}}(x,y)
+=
+\frac{i}{4}H_0^{(1)}(\kappa |x-y|).
+\]
+Thus, for operators depending linearly on the Green kernel and using the
+same derivative conventions, the corresponding BEM matrices should agree
+up to this global sign:
+\[
+A_{\mathrm{rot},0}
+\approx - A_{\mathrm{BT}}.
+\]
+Consequently, the non-rotating consistency test should compare
+\[
+A_{\mathrm{rot},0}+A_{\mathrm{BT}}
+\]
+rather than
+\[
+A_{\mathrm{rot},0}-A_{\mathrm{BT}}.
+\]
+The observed equality of norms together with entries satisfying
+\[
+B_{ij}=-A_{ij}
+\]
+is therefore consistent with the Green-function convention difference, not a
+discretization error.
