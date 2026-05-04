@@ -13,21 +13,20 @@ namespace bemtool
     //   ker(x,y) with x on meshx (observation / test side)
     //   and y on meshy (source / trial side).
     //
-    // This file implements the kernels derived in the thesis for
-    //   \hat G(x,y) = (1/(4i)) H_0^{(1)}(kappa |x-y|)
+    // This file implements the kernels
+    //   \hat G(x,y) = (1/(4i)) H_0^{(1)}(alpha |x-y|)
     //                 exp( sigma (x \times y) )
-    // with
-    //   kappa = k0 * sqrt(eps*mu),
-    //   sigma = -i * Omega * k0 / c0.
+    //
+    // with alpha and sigma computed by the calling class.
 
-    inline Real cross2(const R3& a, const R3& b)
+    inline Real cross2(const R3& x, const R3& y)
     {
-      return a[0] * b[1] - a[1] * b[0];
+      return x[0] * y[1] - x[1] * y[0];
     }
 
-    inline Real cross2_normals(const R3& a, const R3& b)
+    inline Real cross2_normals(const R3& x, const R3& y)
     {
-      return a[0] * b[1] - a[1] * b[0];
+      return x[0] * y[1] - x[1] * y[0];
     }
 
     // q_obs = y_2 n_{x,1} - y_1 n_{x,2}
@@ -46,6 +45,93 @@ namespace bemtool
     {
       // 1/(4i) = -i/4
       return -iu / static_cast<Real>(4);
+    }
+
+    inline Real dist2d(const R3& x, const R3& y)
+    {
+      const Real dx = x[0] - y[0];
+      const Real dy = x[1] - y[1];
+      return std::hypot(dx, dy);
+    }
+
+    inline Cplx phase(const R3& x, const R3& y, Cplx sigma)
+    {
+      return std::exp(sigma * cross2(x, y));
+    }
+
+    inline Cplx G(const R3& x, const R3& y, Real alpha, Cplx sigma)
+    {
+      const Real R = dist2d(x, y);
+      const Cplx H0 = Hankel(0, alpha * R);
+      const Cplx ph = phase(x, y, sigma);
+      return kernel_prefactor() * H0 * ph;
+    }
+
+    inline Cplx dnx_G(const R3& x, const R3& y,
+                      const R3& nx, Real alpha, Cplx sigma)
+    {
+      const Real R = dist2d(x, y);
+      const Real s_obs = (nx, (x - y)) / R;
+      const Real qx = q_obs(y, nx);
+
+      const Cplx H0 = Hankel(0, alpha * R);
+      const Cplx H1 = Hankel1(alpha * R);
+      const Cplx ph = phase(x, y, sigma);
+
+      return kernel_prefactor() * ph
+        * (-alpha * H1 * s_obs + sigma * H0 * qx);
+    }
+
+    inline Cplx dny_G(const R3& x, const R3& y,
+                      const R3& ny, Real alpha, Cplx sigma)
+    {
+      const Real R = dist2d(x, y);
+      const Real s_src = (ny, (x - y)) / R;
+      const Real qy = q_src(x, ny);
+
+      const Cplx H0 = Hankel(0, alpha * R);
+      const Cplx H1 = Hankel1(alpha * R);
+      const Cplx ph = phase(x, y, sigma);
+
+      return kernel_prefactor() * ph
+        * (alpha * H1 * s_src + sigma * H0 * qy);
+    }
+
+    inline Cplx dnx_dny_G(const R3& x, const R3& y,
+                          const R3& nx, const R3& ny,
+                          Real alpha, Cplx sigma)
+    {
+      const R3 d = x - y;
+      const Real R = dist2d(x, y);
+
+      const Real s_obs = (nx, d) / R; // s_X
+      const Real s_src = (ny, d) / R; // s_Y
+      const Real qx = q_obs(y, nx); // q_X
+      const Real qy = q_src(x, ny); // q_Y
+      const Real ndot = (nx, ny); // n_X \cdot n_Y
+      const Real ncross = cross2_normals(nx, ny); // c_XY = n_X x n_Y
+
+      const Cplx H0 = Hankel(0, alpha * R);
+      const Cplx H1 = Hankel1(alpha * R);
+      const Cplx ph = phase(x, y, sigma);
+
+      // From the appendix derivation:
+      // dnx dny Ghat
+      // = (1/(4i)) exp(sigma x×y) [
+      //     H0 ( alpha^2 sX sY + sigma cXY + sigma^2 qX qY )
+      //   + H1 ( alpha/R (nXY - 2 sX sY)
+      //          + alpha sigma (qX sY - qY sX) )
+      //   ]
+      const Cplx term0 =
+      ((alpha * alpha) * s_obs * s_src
+        + sigma * ncross
+        + sigma * sigma * qx * qy) * H0;
+
+      const Cplx term1 =
+      (alpha * (ndot - 2.0 * s_obs * s_src) / R
+        + alpha * sigma * (qx * s_src - qy * s_obs)) * H1;
+
+      return kernel_prefactor() * ph * (term0 + term1);
     }
   }
 
@@ -67,9 +153,8 @@ namespace bemtool
     PhiX phix;
     PhiY phiy;
 
-    const Real k0, eps, mu, Omega, c0, kappa;
+    const Real k0, eps, mu, Omega, c0, khat;
     const Cplx sigma;
-    const Cplx pref;
 
     R3 x0, y0, x, y;
     Real h{};
@@ -85,9 +170,8 @@ namespace bemtool
                const Real& c0_ = 1.)
       : meshx(mx), meshy(my), phix(mx), phiy(my),
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_), c0(c0_),
-        kappa(k0_ * std::sqrt(eps_ * mu_)),
-        sigma(-iu * (Omega_ * k0_ / c0_)),
-        pref(detail_rh_fast::kernel_prefactor())
+        khat(k0_ * std::sqrt(eps_ * mu_)),
+        sigma(-iu * (Omega_ * k0_ / c0_))
     {
     }
 
@@ -108,12 +192,7 @@ namespace bemtool
       x = x0 + dx * tx;
       y = y0 + dy * ty;
 
-      const R3 d = x - y;
-      const Real R = norm2(d);
-      const Cplx H0 = Hankel(0, kappa * R);
-      const Cplx phase = std::exp(sigma * detail_rh_fast::cross2(x, y));
-
-      ker = h * pref * H0 * phase;
+      ker = h * detail_rh_fast::G(x, y, khat, sigma);
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
         for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -159,9 +238,8 @@ namespace bemtool
     PhiX phix;
     PhiY phiy;
 
-    const Real k0, eps, mu, Omega, c0, kappa;
+    const Real k0, eps, mu, Omega, c0, khat;
     const Cplx sigma;
-    const Cplx pref;
 
     R3 x0, y0, x, y, ny;
     Real h{};
@@ -178,9 +256,8 @@ namespace bemtool
       : meshx(mx), meshy(my), normaly(NormalTo(my)),
         phix(mx), phiy(my),
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_), c0(c0_),
-        kappa(k0_ * std::sqrt(eps_ * mu_)),
-        sigma(-iu * (Omega_ * k0_ / c0_)),
-        pref(detail_rh_fast::kernel_prefactor())
+        khat(k0_ * std::sqrt(eps_ * mu_)),
+        sigma(-iu * (Omega_ * k0_ / c0_))
     {
     }
 
@@ -202,16 +279,7 @@ namespace bemtool
       x = x0 + dx * tx;
       y = y0 + dy * ty;
 
-      const R3 d = x - y;
-      const Real R = norm2(d);
-      const Real s_src = (ny, d) / R;
-      const Real q_src = detail_rh_fast::q_src(x, ny);
-
-      const Cplx H0 = Hankel(0, kappa * R);
-      const Cplx H1 = Hankel1(kappa * R);
-      const Cplx phase = std::exp(sigma * detail_rh_fast::cross2(x, y));
-
-      ker = h * pref * phase * (kappa * H1 * s_src + sigma * H0 * q_src);
+      ker = h * detail_rh_fast::dny_G(x, y, ny, khat, sigma);
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
         for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -257,9 +325,8 @@ namespace bemtool
     PhiX phix;
     PhiY phiy;
 
-    const Real k0, eps, mu, Omega, c0, kappa;
+    const Real k0, eps, mu, Omega, c0, khat;
     const Cplx sigma;
-    const Cplx pref;
 
     R3 x0, y0, x, y, nx;
     Real h{};
@@ -276,9 +343,8 @@ namespace bemtool
       : meshx(mx), meshy(my), normalx(NormalTo(mx)),
         phix(mx), phiy(my),
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_), c0(c0_),
-        kappa(k0_ * std::sqrt(eps_ * mu_)),
-        sigma(-iu * (Omega_ * k0_ / c0_)),
-        pref(detail_rh_fast::kernel_prefactor())
+        khat(k0_ * std::sqrt(eps_ * mu_)),
+        sigma(-iu * (Omega_ * k0_ / c0_))
     {
     }
 
@@ -300,16 +366,7 @@ namespace bemtool
       x = x0 + dx * tx;
       y = y0 + dy * ty;
 
-      const R3 d = x - y;
-      const Real R = norm2(d);
-      const Real s_obs = (nx, d) / R;
-      const Real q_obs = detail_rh_fast::q_obs(y, nx);
-
-      const Cplx H0 = Hankel(0, kappa * R);
-      const Cplx H1 = Hankel1(kappa * R);
-      const Cplx phase = std::exp(sigma * detail_rh_fast::cross2(x, y));
-
-      ker = h * pref * phase * (-kappa * H1 * s_obs + sigma * H0 * q_obs);
+      ker = h * detail_rh_fast::dnx_G(x, y, nx, khat, sigma);
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
         for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -356,9 +413,8 @@ namespace bemtool
     PhiX phix;
     PhiY phiy;
 
-    const Real k0, eps, mu, Omega, c0, kappa;
+    const Real k0, eps, mu, Omega, c0, khat;
     const Cplx sigma;
-    const Cplx pref;
 
     R3 x0, y0, x, y, nx, ny;
     Real h{};
@@ -375,9 +431,8 @@ namespace bemtool
       : meshx(mx), meshy(my), normalx(NormalTo(mx)), normaly(NormalTo(my)),
         phix(mx), phiy(my),
         k0(k0_), eps(eps_), mu(mu_), Omega(Omega_), c0(c0_),
-        kappa(k0_ * std::sqrt(eps_ * mu_)),
-        sigma(-iu * (Omega_ * k0_ / c0_)),
-        pref(detail_rh_fast::kernel_prefactor())
+        khat(k0_ * std::sqrt(eps_ * mu_)),
+        sigma(-iu * (Omega_ * k0_ / c0_))
     {
     }
 
@@ -400,27 +455,7 @@ namespace bemtool
       x = x0 + dx * tx;
       y = y0 + dy * ty;
 
-      const R3 d = x - y;
-      const Real R = norm2(d);
-      const Real s_obs = (nx, d) / R;
-      const Real s_src = (ny, d) / R;
-      const Real q_obs = detail_rh_fast::q_obs(y, nx);
-      const Real q_src = detail_rh_fast::q_src(x, ny);
-      const Real ndot = (nx, ny);
-      const Real ncross = detail_rh_fast::cross2_normals(nx, ny);
-
-      const Cplx H0 = Hankel(0, kappa * R);
-      const Cplx H1 = Hankel1(kappa * R);
-      const Cplx phase = std::exp(sigma * detail_rh_fast::cross2(x, y));
-
-      const Cplx term0 = (sigma * sigma * q_obs * q_src
-                          - sigma * ncross
-                          - (kappa * kappa) * s_obs * s_src) * H0;
-
-      const Cplx term1 = (kappa * ndot / R
-                          - sigma * kappa * (q_obs * s_src - q_src * s_obs)) * H1;
-
-      ker = -h * pref * phase * (term0 + term1);
+      ker = -h * detail_rh_fast::dnx_dny_G(x, y, nx, ny, khat, sigma);
 
       for (int j = 0; j < Trait::nb_dof_x; ++j)
         for (int k = 0; k < Trait::nb_dof_y; ++k)
@@ -439,6 +474,7 @@ namespace bemtool
       return val;
     }
   };
+
   using RH_HS_2D_P0xP1 = BIOpKernel<RH, HS_OP, 2, P0_1D, P1_1D>;
   using RH_HS_2D_P1xP0 = BIOpKernel<RH, HS_OP, 2, P1_1D, P0_1D>;
 

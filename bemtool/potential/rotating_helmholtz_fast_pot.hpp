@@ -19,6 +19,7 @@
 #define BEMTOOL_POTENTIAL_ROTATING_HELMHOLTZ_FAST_HPP
 
 #include "potential.hpp"
+#include "../operator/rotating_helmholtz_fast_op.hpp"
 
 namespace bemtool
 {
@@ -45,7 +46,6 @@ namespace bemtool
     const Real khat;
     const Real c0;
     const Cplx sigma;
-    const Cplx pref;
 
     R3 y0;
     R3 x;
@@ -68,7 +68,6 @@ namespace bemtool
       , khat(k0_ * std::sqrt(eps_ * mu_))
       , c0(1.0)
       , sigma(-iu * (Omega_ * k0_ / c0))
-      , pref(detail_rh_fast::kernel_prefactor())
     {}
 
     void Assign(const R3& x_, const int& iy)
@@ -84,17 +83,7 @@ namespace bemtool
     {
       y = y0 + dy * tj;
 
-      const Real dx = x[0] - y[0];
-      const Real dyv = x[1] - y[1];
-      const Real R = std::hypot(dx, dyv);
-
-      const Real z = khat * R;
-      const Cplx H0 = Hankel(0, z);
-      const Real cross = x[0] * y[1] - x[1] * y[0];
-      const Cplx phase = std::exp(sigma * cross);
-
-      const Cplx G = pref * H0 * phase;
-      ker = h * G;
+      ker = h * detail_rh_fast::G(x, y, khat, sigma);
 
       for (int k = 0; k < Trait::nb_dof_y; ++k)
         mat(0, k) = ker * phiy(k, tj);
@@ -164,7 +153,6 @@ namespace bemtool
       , khat(k0_ * std::sqrt(eps_ * mu_))
       , c0(1.0)
       , sigma(-iu * (Omega_ * k0_ / c0))
-      , pref(detail_rh_fast::kernel_prefactor())
     {}
 
     void Assign(const R3& x_, const int& iy)
@@ -181,23 +169,7 @@ namespace bemtool
     {
       y = y0 + dy * tj;
 
-      const Real rx = x[0] - y[0];
-      const Real ry = x[1] - y[1];
-      const Real R = std::hypot(rx, ry);
-
-      const Real z = khat * R;
-      const Cplx H0 = Hankel(0, z);
-      const Cplx H1 = Hankel(1, z);
-
-      const Real cross = x[0] * y[1] - x[1] * y[0];
-      const Cplx phase = std::exp(sigma * cross);
-
-      const Real s_src = (R > 0.) ? ((rx * ny[0] + ry * ny[1]) / R) : 0.0;
-      const Real q_src = x[1] * ny[0] - x[0] * ny[1];
-
-      const Cplx dnG = pref * phase * (khat * H1 * s_src + sigma * H0 * q_src);
-
-      ker = h * dnG;
+      ker = h * detail_rh_fast::dny_G(x, y, ny, khat, sigma);
 
       for (int k = 0; k < Trait::nb_dof_y; ++k)
         mat(0, k) = ker * phiy(k, tj);

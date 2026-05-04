@@ -12,7 +12,7 @@
 #include <sstream>
 #include <iomanip>
 
-#include "tests/helpers.hpp"
+#include "helpers.hpp"
 
 #include "../bemtool/tools.hpp"
 
