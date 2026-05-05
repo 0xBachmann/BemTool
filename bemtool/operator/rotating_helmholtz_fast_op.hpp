@@ -513,7 +513,8 @@ namespace bemtool
 
   // Version if GradBasisFct exists.
   template <typename Phi>
-  struct basis_has_grad<Phi, std::void_t<GradBasisFct<Phi>>> : std::true_type
+  struct basis_has_grad<Phi, std::void_t<decltype(sizeof(GradBasisFct<Phi>))>>
+  : std::true_type
   {
   };
 
