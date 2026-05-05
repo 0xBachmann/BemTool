@@ -194,32 +194,33 @@ def plot_four_panel_matrix(
 
 
 def main():
+    k = 4
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--tm-fk",
         type=Path,
-        default=Path("../cmake-build-release/pec_tm_fk_grid_100x100.csv"),
+        default=Path(f"../../cmake-build-release/pec_tm_fk_grid_{k:.6f}_100x100.csv"),
     )
     parser.add_argument(
         "--tm-sk",
         type=Path,
-        default=Path("../cmake-build-release/pec_tm_sk_grid_100x100.csv"),
+        default=Path(f"../../cmake-build-release/pec_tm_sk_grid_{k:.6f}_100x100.csv"),
     )
     parser.add_argument(
         "--te-fk",
         type=Path,
-        default=Path("../cmake-build-release/pec_te_fk_grid_100x100.csv"),
+        default=Path(f"../../cmake-build-release/pec_te_fk_grid_{k:.6f}_100x100.csv"),
     )
     parser.add_argument(
         "--te-sk",
         type=Path,
-        default=Path("../cmake-build-release/pec_te_sk_grid_100x100.csv"),
+        default=Path(f"../../cmake-build-release/pec_te_sk_grid_{k:.6f}_100x100.csv"),
     )
     parser.add_argument("--field", type=str, default="utot", choices=["uinc", "usca", "utr", "utot"])
     parser.add_argument("--cmap", type=str, default="viridis")
     parser.add_argument("--marker-size", type=float, default=12.0)
     parser.add_argument("--outdir", type=Path, default=Path("plots"))
-    parser.add_argument("--outfile", type=str, default="pec_tm_te_fk_sk_matrix_scatter_2.pdf")
+    parser.add_argument("--outfile", type=str, default=f"pec_tm_te_fk_sk_matrix_scatter_{k:.0f}.pdf")
     args = parser.parse_args()
 
     plot_four_panel_matrix(
