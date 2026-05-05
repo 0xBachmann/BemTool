@@ -12,9 +12,6 @@ link_libraries(MPI::MPI_CXX)
 find_package(Eigen3 REQUIRED)
 link_libraries(Eigen3::Eigen)
 
-add_executable(test2D test2D.cpp)
-add_executable(test3D test3D.cpp)
-
 add_executable(pec_cylinder rotation/pec_cylinder.cpp)
 add_executable(dielectric_cylinder rotation/dielectric_cylinder.cpp)
 
