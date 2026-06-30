@@ -17,8 +17,7 @@ function (see `doc/solutions-analytiques.pdf`)
 
 $$
 G_{\mathrm{HE}}(x,y)
-=
-\frac{i}{4}H_0^{(1)}(\kappa |x-y|).
+=\frac{i}{4}H_0^{(1)}(\kappa |x-y|).
 $$
 
 In the non-rotating limit, the rotating Helmholtz kernel used in this thesis
@@ -26,10 +25,9 @@ reduces to
 
 $$
 G_{\mathrm{RH},0}(x,y)
-=
-\frac{1}{4i}H_0^{(1)}(\kappa |x-y|)
+=\frac{1}{4i}H_0^{(1)}(\kappa |x-y|)
 =-\frac{i}{4}H_0^{(1)}(\kappa |x-y|)
-=-\,G_{\mathrm{HE}}(x,y).
+=-G_{\mathrm{HE}}(x,y).
 $$
 
 Thus,
@@ -51,8 +49,7 @@ to the argument $x-y$:
 
 $$
 DL(p)(x)
-=
-\int_\Gamma n(y)\cdot \nabla G(x-y)\,p(y)\,d\sigma(y).
+=\int_\Gamma n(y)\cdot \nabla G(x-y)p(y)d\sigma(y).
 $$
 
 This is not the same as differentiating with respect to the source coordinate
