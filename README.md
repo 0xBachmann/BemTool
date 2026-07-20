@@ -1,7 +1,6 @@
 # Rotating BEMTool Fork
 
-[![Tests](https://github.com/0xBachmann/BemTool/actions/workflows/tests.yml/badge.svg)](https://github.com/0xBachmann/BemTool/actions/workflows/tests.yaml)
-
+]([![Tests](https://github.com/0xBachmann/BemTool/actions/workflows/tests.yaml/badge.svg?branch=master)](https://github.com/0xBachmann/BemTool/actions/workflows/tests.yaml?query=branch%3Amaster))
 This repository is the software companion to the MSc thesis
 **Boundary Element Method for Electromagnetic Scattering from Rotating Bodies**
 by Jonas Bachmann, ETH Zürich, April 2026.
