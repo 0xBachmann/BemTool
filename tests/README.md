@@ -21,6 +21,12 @@ From the repository root, run:
 ./build_and_test.sh
 ```
 
+for a quick check for correct installation consider running 
+
+```bash
+./build_and_test.sh --quick
+```
+
 or build manually and then run CTest:
 
 ```bash

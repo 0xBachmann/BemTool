@@ -63,7 +63,7 @@ namespace
     std::vector<R3> get_circle_points(unsigned n = 100)
     {
         std::vector<R3> points;
-        const double dtheta = M_PI / n;
+        const double dtheta = 2 * M_PI / n;
 
         for (unsigned ix = 0; ix < n; ++ix)
         {
@@ -104,12 +104,12 @@ namespace
         return k0 * std::sqrt(eps * mu);
     }
 
-    // Adapt this if your class uses a different convention for sigma.
     Cplx sigma_rh(Real k0, Real eps, Real mu, Real Omega)
     {
-        constexpr Real c0 = 299792458.0;
+        constexpr Real c0 = 1.0;
         const Real n = std::sqrt(eps * mu);
-        return Cplx(0.0, 1.0) * (Omega * alpha_rh(k0, eps, mu) / (n * c0));
+
+        return Cplx(0.0, -1.0) * (Omega * alpha_rh(k0, eps, mu) / (n * c0));
     }
 
     Cplx G_he(const R3& x, const R3& y, Real k0)
