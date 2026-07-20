@@ -1,28 +1,29 @@
-name: Build and test
+name: Tests
 
 on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      run_slow_tests:
-        description: "Run the complete suite, including slow tests"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: tests-${{ github.workflow }}-${{ github.ref }}
+  group: quick-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: Linux / GCC
+    name: Build and run tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
+
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPRESS: "true"
 
     steps:
       - name: Check out repository
@@ -33,10 +34,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential \
+            ccache \
             cmake \
             libboost-all-dev \
             libeigen3-dev \
             libopenmpi-dev
 
-      - name: Run quick test suite
-        run: bash ./build_and_test.sh --all
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: >-
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Reset cache statistics
+        run: ccache --zero-stats
+
+      - name: Build and run quick tests
+        run: bash ./build_and_test.sh --quick
+
+      - name: Show cache statistics
+        if: always()
+        run: ccache --show-stats
