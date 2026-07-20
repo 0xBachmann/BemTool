@@ -1,68 +1,73 @@
-# Non-rotating Rotating-Helmholtz Consistency Tests
+# Rotating Helmholtz Consistency Tests
 
-This directory contains consistency tests comparing the rotating Helmholtz
-boundary integral operators against BemTool's standard Helmholtz operators in
-the non-rotating limit (`rh_equals_he_nonrotating.cpp`), as well as comparing derivatives of the Green's
-function to finite differences (`normal_deivative_G.cpp`).
+This directory contains small automated tests for the rotating Helmholtz implementation used in the thesis software companion.
 
-The main purpose of these tests is to verify that the rotating implementation
-reduces to the Helmholtz implementation when the rotation parameter is set to
-zero, modulo the sign conventions of the Green function and the derivative
-conventions used by BemTool.
+The tests are not intended to reproduce the full numerical experiments from Chapter 4 of the thesis. Instead, they check local consistency properties that should remain true after installation or code changes.
+
+## Test files
+
+| Test | Purpose |
+| --- | --- |
+| `rh_equals_he_nonrotating.cpp` | Compares rotating Helmholtz boundary integral operators with BEMTool's standard Helmholtz operators in the non-rotating limit. |
+| `normal_deivative_G.cpp` | Compares analytical normal derivatives of the rotating Green's function with finite-difference approximations. |
+
+The relevant mathematical background is discussed in the thesis in Sections 2.9 and 3.2--3.5, with implementation conventions described in Section 3.9 and derivative formulas collected in Appendix A.9.
+
+## Running the tests
+
+From the repository root, run:
+
+```bash
+./build_and_test.sh
+```
+
+or build manually and then run CTest:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
 
 ## Green-function convention
 
-BemTool's two-dimensional Helmholtz implementation uses the outgoing Green
-function (see `doc/solutions-analytiques.pdf`)
+BEMTool's two-dimensional Helmholtz implementation uses the outgoing Green's function
 
 $$
 G_{\mathrm{HE}}(x,y)
-=\frac{i}{4}H_0^{(1)}(\kappa |x-y|).
+= \frac{i}{4} H_0^{(1)}\!\left(\kappa |x-y|\right).
 $$
 
-In the non-rotating limit, the rotating Helmholtz kernel used in this thesis
-reduces to
+In the non-rotating limit, the rotating Helmholtz kernel used in the thesis reduces to
 
 $$
 G_{\mathrm{RH},0}(x,y)
-=\frac{1}{4i}H_0^{(1)}(\kappa |x-y|)
-=-\frac{i}{4}H_0^{(1)}(\kappa |x-y|)
-=-G_{\mathrm{HE}}(x,y).
+= \frac{1}{4i} H_0^{(1)}\!\left(\kappa |x-y|\right)
+= -\frac{i}{4} H_0^{(1)}\!\left(\kappa |x-y|\right)
+= -G_{\mathrm{HE}}(x,y).
 $$
 
-Thus,
+Equivalently,
 
 $$
-G_{\mathrm{RH},0}=-G_{\mathrm{HE}}.
+G_{\mathrm{RH},0} + G_{\mathrm{HE}} = 0.
 $$
 
-Thus we expect
-```cpp
-V_rh == V_he
-Kp_rh === Kp_he
-```
+The non-rotating consistency test therefore checks the rotating implementation against the standard Helmholtz implementation with the sign convention used in the code.
 
-## Derivative convention for the double-layer operator
+## Derivative convention for double-layer operators
 
-BemTool's double-layer convention differentiates the Green kernel with respect
-to the argument $x-y$:
+BEMTool's double-layer convention differentiates the Green kernel with respect to the argument $x-y$:
 
 $$
-DL(p)(x)
-=\int_\Gamma n(y)\cdot \nabla G(x-y)p(y)d\sigma(y).
+\Psi_{\mathrm{DL}} p(x)
+= \int_\Gamma n(y) \cdot \nabla G(x-y)\,p(y)\,d\sigma(y).
 $$
 
-This is not the same as differentiating with respect to the source coordinate
-$y$, since
+This differs by a sign from differentiating with respect to the source coordinate $y$, because
 
 $$
-\nabla_y G(x-y)
-=-\nabla_{x-y}G(x-y).
+\nabla_y G(x-y) = -\nabla_{x-y} G(x-y).
 $$
 
-Thus we expect
-```cpp
-K_rh == K_he
-```
-
-and the according signs for the single and double layer potentials.
+For this reason, the tests should always be interpreted together with the sign conventions in `rh_equals_he_nonrotating.cpp` and `normal_deivative_G.cpp`. The purpose of the tests is not merely to compare raw matrix entries, but to verify that the implemented rotating kernels, normal derivatives, and BEMTool operator conventions agree in the non-rotating limit.
