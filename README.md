@@ -140,6 +140,12 @@ This creates a `build` directory, builds the available targets, and runs the
 automated tests. Depending on the machine and enabled targets, the full build
 can take several minutes.
 
+For a quick check for correct installation consider running
+
+```bash
+./build_and_test.sh --quick
+```
+
 A manual build is also possible:
 
 ```bash
