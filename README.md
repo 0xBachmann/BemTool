@@ -157,32 +157,6 @@ ctest --test-dir build --output-on-failure
 The main dependencies are those required by BEMTool and the added examples:
 a C++17-capable compiler, CMake, Eigen, and Boost.
 
-## Automated tests
-
-The `tests/` directory contains small consistency checks for the rotating
-implementation. They are intended to be run after installation and after code
-changes.
-
-The current tests check:
-
-- the non-rotating limit of the rotating Helmholtz implementation,
-- consistency of Green-function derivatives with finite differences.
-
-Run the tests with:
-
-```bash
-./build_and_test.sh
-```
-
-or, after a manual build, with:
-
-```bash
-ctest --test-dir build --output-on-failure
-```
-
-The larger numerical examples in `rotation/` are thesis experiments and should
-not be treated as a replacement for the automated test suite.
-
 ## Numerical examples
 
 The main example drivers are located in `rotation/`. They reproduce the
